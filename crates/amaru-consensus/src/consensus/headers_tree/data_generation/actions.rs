@@ -20,11 +20,10 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
-use crate::consensus::headers_tree::HeadersTreeDisplay;
 use crate::consensus::{
     errors::ConsensusError,
     headers_tree::{
-        HeadersTree,
+        HeadersTree, HeadersTreeDisplay,
         Tracker::{self, Me, SomePeer},
         data_generation::{
             GeneratedTree,
@@ -38,21 +37,19 @@ use crate::consensus::{
         RollbackChainSelection::{self, RollbackBeyondLimit},
     },
 };
-use amaru_kernel::string_utils::ListsToString;
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, HeaderHash, IsHeader, Point, is_header::tests::make_header,
-    peer::Peer, string_utils::ListToString,
+    BlockHeader, Hash, IsHeader, Peer, Point,
+    hash::size::HEADER,
+    make_header,
+    utils::string::{ListToString, ListsToString},
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
-use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
-use rand::prelude::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, SeedableRng, prelude::SmallRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::BTreeSet;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
@@ -67,7 +64,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn hash(&self) -> HeaderHash {
+    pub fn hash(&self) -> Hash<HEADER> {
         match self {
             Action::RollForward { header, .. } => header.hash(),
             Action::RollBack { rollback_point, .. } => rollback_point.hash(),
@@ -140,9 +137,9 @@ impl<'de> Deserialize<'de> for SimplifiedHeader {
     }
 }
 
-fn decode_hash(s: &str) -> Result<HeaderHash, FromHexError> {
+fn decode_hash(s: &str) -> Result<Hash<HEADER>, FromHexError> {
     let bytes = hex::decode(s)?;
-    let mut arr = [0u8; HEADER_HASH_SIZE];
+    let mut arr = [0u8; HEADER];
     arr.copy_from_slice(&bytes);
     Ok(Hash::from(arr))
 }

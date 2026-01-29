@@ -14,8 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
-    network::NetworkName, protocol_parameters::ProtocolParameters,
+    AuxiliaryData, EraHistory, NetworkName, TransactionBody, TransactionInput, TransactionPointer,
+    WitnessSet, protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};

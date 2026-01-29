@@ -20,11 +20,11 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    Certificate, CertificatePointer, DRep, DRepRegistration, EraHistory, MemoizedDatum,
-    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose,
-    StakeCredential, TransactionPointer, protocol_parameters::ProtocolParameters,
+    Certificate, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError,
+    Hash, MemoizedDatum, NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript,
+    ScriptPurpose, StakeCredential, TransactionPointer, hash::size::SCRIPT,
+    protocol_parameters::ProtocolParameters,
 };
-use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -99,7 +99,7 @@ where
 {
     // Promote a ScriptHash into a RequiredScript, with additional context needed to defer the
     // validation of the script.
-    let into_required_script = |hash: ScriptHash| -> RequiredScript {
+    let into_required_script = |hash: Hash<SCRIPT>| -> RequiredScript {
         RequiredScript {
             hash,
             index: pointer.certificate_index as u32,

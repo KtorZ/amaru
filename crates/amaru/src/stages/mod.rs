@@ -30,10 +30,9 @@ use amaru_consensus::consensus::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tx,
-    network::NetworkName,
-    peer::Peer,
-    protocol_messages::{network_magic::NetworkMagic, tip::Tip},
+    BlockHeader, EraHistory, Hash, IsHeader, NetworkMagic, NetworkName, ORIGIN_HASH, Peer, Point,
+    Tip, Transaction,
+    hash::size::HEADER,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
@@ -44,8 +43,8 @@ use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution, ResourceMempool,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::manager;
-use amaru_protocols::manager::Manager;
+use amaru_plutus::arena_pool::ArenaPool;
+use amaru_protocols::{manager, manager::Manager};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
@@ -267,7 +266,7 @@ pub async fn build_and_run_network(
         .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
     network
         .resources()
-        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
@@ -308,7 +307,7 @@ pub async fn build_and_run_network(
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
-    tip: &HeaderHash,
+    tip: &Hash<HEADER>,
 ) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),

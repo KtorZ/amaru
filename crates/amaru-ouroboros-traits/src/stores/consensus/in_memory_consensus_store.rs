@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock};
+use amaru_kernel::{Hash, IsHeader, NULL_HASH32, Point, RawBlock, hash::size::HEADER};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -40,12 +40,12 @@ impl<H> InMemConsensusStore<H> {
 }
 
 struct InMemConsensusStoreInner<H> {
-    nonces: BTreeMap<HeaderHash, Nonces>,
-    headers: BTreeMap<HeaderHash, H>,
-    parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
-    anchor: HeaderHash,
-    best_chain: HeaderHash,
-    blocks: BTreeMap<HeaderHash, RawBlock>,
+    nonces: BTreeMap<Hash<HEADER>, Nonces>,
+    headers: BTreeMap<Hash<HEADER>, H>,
+    parent_child_relationship: BTreeMap<Hash<HEADER>, Vec<Hash<HEADER>>>,
+    anchor: Hash<HEADER>,
+    best_chain: Hash<HEADER>,
+    blocks: BTreeMap<Hash<HEADER>, RawBlock>,
     chain: Vec<Point>,
 }
 
@@ -61,8 +61,8 @@ impl<H> InMemConsensusStoreInner<H> {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
-            anchor: ORIGIN_HASH,
-            best_chain: ORIGIN_HASH,
+            anchor: NULL_HASH32,
+            best_chain: NULL_HASH32,
             blocks: BTreeMap::new(),
             chain: Vec::new(),
         }
@@ -71,19 +71,19 @@ impl<H> InMemConsensusStoreInner<H> {
 
 impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusStore<H> {
     #[expect(clippy::unwrap_used)]
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+    fn load_header(&self, hash: &Hash<HEADER>) -> Option<H> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+    fn get_nonces(&self, header: &Hash<HEADER>) -> Option<Nonces> {
         let inner = self.inner.lock().unwrap();
         inner.nonces.get(header).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &Hash<HEADER>) -> Result<RawBlock, StoreError> {
         let inner = self.inner.lock().unwrap();
         inner
             .blocks
@@ -93,13 +93,13 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn has_header(&self, hash: &HeaderHash) -> bool {
+    fn has_header(&self, hash: &Hash<HEADER>) -> bool {
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+    fn get_children(&self, hash: &Hash<HEADER>) -> Vec<Hash<HEADER>> {
         let inner = self.inner.lock().unwrap();
         inner
             .parent_child_relationship
@@ -109,19 +109,19 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_hash(&self) -> Hash<HEADER> {
         let inner = self.inner.lock().unwrap();
         inner.anchor
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_hash(&self) -> Hash<HEADER> {
         let inner = self.inner.lock().unwrap();
         inner.best_chain
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+    fn load_from_best_chain(&self, point: &Point) -> Option<Hash<HEADER>> {
         let inner = self.inner.lock().unwrap();
         inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
     }
@@ -162,28 +162,28 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &Hash<HEADER>, nonces: &Nonces) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.nonces.insert(*header, nonces.clone());
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &Hash<HEADER>, block: &RawBlock) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.blocks.insert(*hash, (*block).clone());
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *hash;
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_best_chain_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.best_chain = *hash;
         Ok(())

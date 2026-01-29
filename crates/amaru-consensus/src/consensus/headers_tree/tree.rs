@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::HeaderHash;
-use amaru_kernel::IsHeader;
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Display, Formatter};
+use amaru_kernel::{Hash, IsHeader, hash::size::HEADER};
+use std::{
+    collections::BTreeMap,
+    fmt::{Debug, Display, Formatter},
+};
 
 /// This tree structure implements parent-child relationships between nodes of type `H`.
 #[derive(Clone, PartialEq, Eq)]
@@ -94,9 +95,9 @@ impl<H> Tree<H> {
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
     /// Create a `Tree` from a map of headers, indexed by their hash.
-    pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Option<Self> {
+    pub fn from(headers: &BTreeMap<Hash<HEADER>, H>) -> Option<Self> {
         // Build parent -> children index
-        let mut by_parent: BTreeMap<Option<HeaderHash>, Vec<H>> = BTreeMap::new();
+        let mut by_parent: BTreeMap<Option<Hash<HEADER>>, Vec<H>> = BTreeMap::new();
         for header in headers.values() {
             by_parent
                 .entry(header.parent())
@@ -113,7 +114,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
             // Recursively build the tree
             fn build<T: IsHeader + Clone>(
                 root: T,
-                by_parent: &BTreeMap<Option<HeaderHash>, Vec<T>>,
+                by_parent: &BTreeMap<Option<Hash<HEADER>>, Vec<T>>,
             ) -> Tree<T> {
                 let mut tree = Tree::make_leaf(&root);
                 if let Some(children) = by_parent.get(&Some(root.hash())) {
@@ -211,7 +212,7 @@ impl<H> Tree<H> {
 #[cfg(any(test, feature = "test-utils"))]
 impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
     /// Add a child to a specific parent in the tree
-    pub fn add(&mut self, parent_hash: HeaderHash, new: &H) -> bool {
+    pub fn add(&mut self, parent_hash: Hash<HEADER>, new: &H) -> bool {
         if self.value.hash() == parent_hash {
             self.add_child(new);
             return true;
@@ -236,13 +237,13 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
         self
     }
 
-    pub fn to_map(&self) -> BTreeMap<HeaderHash, H> {
+    pub fn to_map(&self) -> BTreeMap<Hash<HEADER>, H> {
         let mut map = BTreeMap::new();
         self.to_map_recursive(&mut map);
         map
     }
 
-    fn to_map_recursive(&self, map: &mut BTreeMap<HeaderHash, H>) {
+    fn to_map_recursive(&self, map: &mut BTreeMap<Hash<HEADER>, H>) {
         map.insert(self.value.hash(), self.value.clone());
         for child in &self.children {
             child.to_map_recursive(map);

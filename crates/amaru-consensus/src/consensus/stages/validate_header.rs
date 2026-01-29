@@ -12,16 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use crate::consensus::store::PraosChainStore;
-use amaru_kernel::IsHeader;
-use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use amaru_kernel::{BlockHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor};
+use crate::consensus::{
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ValidationFailed},
+    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
+    span::HasSpan,
+    store::PraosChainStore,
+};
+use amaru_kernel::{
+    BlockHeader, IsHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor,
+};
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
-use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
+use amaru_ouroboros_traits::{
+    ChainStore, HasStakeDistribution, Praos,
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
+};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
@@ -176,19 +181,20 @@ impl CanValidateHeaders for ValidateHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus;
-    use crate::consensus::effects::MockLedgerOps;
-    use crate::consensus::errors::ConsensusError::NoncesError;
-    use amaru_kernel::Point;
-    use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{
-        HeaderHash, RawBlock,
-        protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
+    use crate::{
+        consensus,
+        consensus::{effects::MockLedgerOps, errors::ConsensusError::NoncesError},
     };
-    use amaru_ouroboros_traits::Nonces;
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
+    use amaru_kernel::{
+        Hash, NetworkName, Point, RawBlock, any_header_with_some_parent,
+        hash::size::HEADER,
+        protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
+        utils::tests::run_strategy,
+    };
+    use amaru_ouroboros_traits::{
+        ChainStore, Nonces, ReadOnlyChainStore, StoreError,
+        in_memory_consensus_store::InMemConsensusStore,
+    };
     use std::sync::Arc;
 
     #[tokio::test]
@@ -262,35 +268,35 @@ mod tests {
     }
 
     impl ReadOnlyChainStore<BlockHeader> for FailingStore {
-        fn has_header(&self, hash: &HeaderHash) -> bool {
+        fn has_header(&self, hash: &Hash<HEADER>) -> bool {
             self.store.has_header(hash)
         }
 
-        fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+        fn load_header(&self, hash: &Hash<HEADER>) -> Option<BlockHeader> {
             self.store.load_header(hash)
         }
 
-        fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        fn get_children(&self, hash: &Hash<HEADER>) -> Vec<Hash<HEADER>> {
             self.store.get_children(hash)
         }
 
-        fn get_anchor_hash(&self) -> HeaderHash {
+        fn get_anchor_hash(&self) -> Hash<HEADER> {
             self.store.get_anchor_hash()
         }
 
-        fn get_best_chain_hash(&self) -> HeaderHash {
+        fn get_best_chain_hash(&self) -> Hash<HEADER> {
             self.store.get_best_chain_hash()
         }
 
-        fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+        fn load_block(&self, hash: &Hash<HEADER>) -> Result<RawBlock, StoreError> {
             self.store.load_block(hash)
         }
 
-        fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
+        fn get_nonces(&self, hash: &Hash<HEADER>) -> Option<Nonces> {
             self.store.get_nonces(hash)
         }
 
-        fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        fn load_from_best_chain(&self, point: &Point) -> Option<Hash<HEADER>> {
             self.store.load_from_best_chain(point)
         }
 
@@ -300,11 +306,11 @@ mod tests {
     }
 
     impl ChainStore<BlockHeader> for FailingStore {
-        fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        fn set_anchor_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
             self.store.set_anchor_hash(hash)
         }
 
-        fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        fn set_best_chain_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
             self.store.set_best_chain_hash(hash)
         }
 
@@ -312,11 +318,11 @@ mod tests {
             self.store.store_header(header)
         }
 
-        fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+        fn store_block(&self, hash: &Hash<HEADER>, block: &RawBlock) -> Result<(), StoreError> {
             self.store.store_block(hash, block)
         }
 
-        fn put_nonces(&self, hash: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
+        fn put_nonces(&self, hash: &Hash<HEADER>, nonces: &Nonces) -> Result<(), StoreError> {
             self.store.put_nonces(hash, nonces)
         }
 
@@ -336,7 +342,7 @@ mod tests {
         Arc<dyn HasStakeDistribution>,
     ) {
         // Create a minimal valid header using the default constructor
-        let header = run(any_header_with_some_parent());
+        let header = run_strategy(any_header_with_some_parent());
         // Create a simple global parameters for testing
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
         let ledger = Arc::new(MockLedgerOps);

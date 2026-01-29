@@ -18,7 +18,7 @@ use crate::in_memory::ledger::columns::{
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    Epoch, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
@@ -33,7 +33,6 @@ use amaru_ledger::{
         },
     },
 };
-use amaru_slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
@@ -861,7 +860,7 @@ mod tests {
         },
     };
     use amaru_kernel::{
-        EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        EraHistory, NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
     };
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;

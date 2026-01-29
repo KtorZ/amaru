@@ -25,7 +25,7 @@ use crate::consensus::{
     },
 };
 use amaru_kernel::{
-    HeaderHash, IsHeader, ORIGIN_HASH, Point, peer::Peer, string_utils::ListToString,
+    Hash, IsHeader, ORIGIN_HASH, Peer, Point, hash::size::HEADER, utils::string::ListToString,
 };
 use amaru_ouroboros_traits::ChainStore;
 #[cfg(any(test, feature = "test-utils"))]
@@ -65,7 +65,7 @@ impl<H> HeadersTree<H> {
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct HeadersTreeState {
     max_length: usize,
-    peers: BTreeMap<Tracker, Vec<HeaderHash>>,
+    peers: BTreeMap<Tracker, Vec<Hash<HEADER>>>,
 }
 
 impl Display for HeadersTreeState {
@@ -101,7 +101,7 @@ impl HeadersTreeState {
 
     /// Return the peers and their current chain tips for testing.
     #[cfg(test)]
-    pub(crate) fn peers(&self) -> &BTreeMap<Tracker, Vec<HeaderHash>> {
+    pub(crate) fn peers(&self) -> &BTreeMap<Tracker, Vec<Hash<HEADER>>> {
         &self.peers
     }
 
@@ -110,7 +110,7 @@ impl HeadersTreeState {
         &mut self,
         store: Arc<dyn ChainStore<H>>,
         peer: &Peer,
-        hash: &HeaderHash,
+        hash: &Hash<HEADER>,
     ) -> Result<(), ConsensusError> {
         if store.has_header(hash) || hash == &ORIGIN_HASH {
             let mut peer_chain: Vec<_> = store.ancestors_hashes(hash).collect();
@@ -187,7 +187,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     }
 
     /// Load all the headers in the subtree rooted at the given hash
-    fn load_headers(&self, root: &HeaderHash) -> Vec<H> {
+    fn load_headers(&self, root: &Hash<HEADER>) -> Vec<H> {
         let mut headers = vec![];
         if let Some(header) = self.chain_store.load_header(root) {
             headers.push(header);
@@ -220,7 +220,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     pub fn initialize_peer(
         &mut self,
         peer: &Peer,
-        hash: &HeaderHash,
+        hash: &Hash<HEADER>,
     ) -> Result<(), ConsensusError> {
         if self.chain_store.has_header(hash) || hash == &ORIGIN_HASH {
             let mut peer_chain: Vec<_> = self.ancestors_hashes(hash).collect();
@@ -313,7 +313,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     pub fn select_rollback(
         &mut self,
         peer: &Peer,
-        rollback_hash: &HeaderHash,
+        rollback_hash: &Hash<HEADER>,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
         // The peer tip must be known
         if let Some(peer_tip) = self.get_peer_tip(peer).cloned() {
@@ -394,7 +394,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the list of the best chains currently known.
-    pub fn best_peers_chains(&self) -> Vec<&HeaderHash> {
+    pub fn best_peers_chains(&self) -> Vec<&Hash<HEADER>> {
         let mut best_length = 0;
         let mut best_chains = vec![];
         for chain in self.tree_state.peers.values() {
@@ -417,7 +417,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the root of the tree
-    pub fn anchor(&self) -> HeaderHash {
+    pub fn anchor(&self) -> Hash<HEADER> {
         self.chain_store.get_anchor_hash()
     }
 
@@ -426,7 +426,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     fn rollback_peer_chain(
         &mut self,
         peer: &Peer,
-        hash: &HeaderHash,
+        hash: &Hash<HEADER>,
     ) -> Result<(), ConsensusError> {
         if let Some(chain) = self.tree_state.peers.get_mut(&SomePeer(peer.clone())) {
             if let Some(rollback_index) = chain.iter().position(|h| h == hash) {
@@ -442,7 +442,12 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Create a fork for a given peer:
     ///  - the old tip is the tip of the previous best chain
     ///  - the new tip is the tip of the new best chain
-    fn make_fork(&self, best_peer: &Peer, old_tip: &HeaderHash, new_tip: &HeaderHash) -> Fork<H> {
+    fn make_fork(
+        &self,
+        best_peer: &Peer,
+        old_tip: &Hash<HEADER>,
+        new_tip: &Hash<HEADER>,
+    ) -> Fork<H> {
         let intersection_hash = self.find_intersection_hash(old_tip, new_tip);
 
         // get all the hashes between the new tip and the forking hash
@@ -478,18 +483,18 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Return the header for a given hash, panicking if it does not exist.
     /// This function should only with precaution, when we are sure the header exists.
     #[expect(clippy::panic)]
-    fn unsafe_get_header(&self, hash: &HeaderHash) -> H {
+    fn unsafe_get_header(&self, hash: &Hash<HEADER>) -> H {
         self.get_header(hash)
             .unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
     }
 
     /// Return the header for a given hash, or None if it does not exist.
-    fn get_header(&self, hash: &HeaderHash) -> Option<H> {
+    fn get_header(&self, hash: &Hash<HEADER>) -> Option<H> {
         self.chain_store.load_header(hash)
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &Hash<HEADER>) -> Box<dyn Iterator<Item = Hash<HEADER>> + '_> {
         self.chain_store.ancestors_hashes(hash)
     }
 
@@ -514,7 +519,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the tip of the chain for a given peer, or None if the peer is unknown.
-    fn get_peer_tip(&self, peer: &Peer) -> Option<&HeaderHash> {
+    fn get_peer_tip(&self, peer: &Peer) -> Option<&Hash<HEADER>> {
         self.tree_state
             .peers
             .get(&SomePeer(peer.clone()))
@@ -522,12 +527,12 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the best currently known tip
-    pub(crate) fn best_chain(&self) -> HeaderHash {
+    pub(crate) fn best_chain(&self) -> Hash<HEADER> {
         self.chain_store.get_best_chain_hash()
     }
 
     /// Store the best currently known tip and update our tracker to the new best chain fragment.
-    fn set_best_chain(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
+    fn set_best_chain(&mut self, hash: &Hash<HEADER>) -> Result<(), ConsensusError> {
         self.chain_store
             .set_best_chain_hash(hash)
             .map_err(|e| ConsensusError::SetBestChainHashFailed(*hash, e))?;
@@ -539,7 +544,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Store the current chain anchor if it has changed.
-    fn set_anchor(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
+    fn set_anchor(&mut self, hash: &Hash<HEADER>) -> Result<(), ConsensusError> {
         self.chain_store
             .set_anchor_hash(hash)
             .map_err(|e| ConsensusError::SetAnchorHashFailed(*hash, e))?;
@@ -561,7 +566,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the header hash that is the least common parent between 2 headers in the tree
     /// This implementation avoids materializing the full set of ancestors for both headers.
-    fn find_intersection_hash(&self, hash1: &HeaderHash, hash2: &HeaderHash) -> HeaderHash {
+    fn find_intersection_hash(&self, hash1: &Hash<HEADER>, hash2: &Hash<HEADER>) -> Hash<HEADER> {
         if hash1 == hash2 {
             return *hash1;
         }
@@ -616,7 +621,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes(&self) -> Vec<HeaderHash> {
+    fn best_chain_fragment_hashes(&self) -> Vec<Hash<HEADER>> {
         let best_chain = self.best_chain();
         self.tree_state
             .peers
@@ -628,7 +633,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = Hash<HEADER>> {
         let best_chain = self.best_chain();
         self.tree_state
             .peers
@@ -698,10 +703,11 @@ mod tests {
         stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
     };
     use amaru_kernel::{
-        BlockHeader,
-        is_header::tests::{any_header_with_parent, run},
-        string_utils::{ListDebug, ListsToString},
-        tests::random_hash,
+        BlockHeader, any_header_hash, any_header_with_parent,
+        utils::{
+            string::{ListDebug, ListsToString},
+            tests::run_strategy,
+        },
     };
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::proptest;
@@ -762,7 +768,10 @@ mod tests {
         let mut tree = create_headers_tree(5);
 
         let peer = Peer::new("alice");
-        assert!(tree.initialize_peer(&peer, &random_hash()).is_err());
+        assert!(
+            tree.initialize_peer(&peer, &run_strategy(any_header_hash()))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1248,7 +1257,7 @@ mod tests {
         let added_headers = rollforward_from(&mut tree, header1, &bob, 4); // 4 added headers
 
         // alice catches up but bob is still the best
-        let next_header_alice = run(any_header_with_parent(headers[4].hash()));
+        let next_header_alice = run_strategy(any_header_with_parent(headers[4].hash()));
         store.store_header(&next_header_alice).unwrap();
         let result = tree
             .select_roll_forward(&alice, &next_header_alice)
@@ -1256,7 +1265,7 @@ mod tests {
         assert_eq!(result, ForwardChainSelection::NoChange);
 
         // alice becomes the best again
-        let next_header_alice = run(any_header_with_parent(next_header_alice.hash()));
+        let next_header_alice = run_strategy(any_header_with_parent(next_header_alice.hash()));
         store.store_header(&next_header_alice).unwrap();
         let result = tree
             .select_roll_forward(&alice, &next_header_alice)
@@ -1264,13 +1273,14 @@ mod tests {
         assert!(matches!(dbg!(result), SwitchToFork(_)));
 
         // bob catches up to alice, but alice stays the best
-        let next_header_bob = run(any_header_with_parent(added_headers.last().unwrap().hash()));
+        let next_header_bob =
+            run_strategy(any_header_with_parent(added_headers.last().unwrap().hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
         assert_eq!(result, ForwardChainSelection::NoChange);
 
         // bob becomes the best again
-        let next_header_bob = run(any_header_with_parent(next_header_bob.hash()));
+        let next_header_bob = run_strategy(any_header_with_parent(next_header_bob.hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
         assert!(matches!(dbg!(result), SwitchToFork(_)));

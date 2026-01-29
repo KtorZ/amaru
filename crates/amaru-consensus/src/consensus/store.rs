@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, IsHeader, Nonce, Point, protocol_parameters::ConsensusParameters};
+use amaru_kernel::{
+    EraHistoryError, Hash, IsHeader, Nonce, Point, hash::size::HEADER,
+    protocol_parameters::ConsensusParameters,
+};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
-use amaru_slot_arithmetic::EraHistoryError;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -40,7 +42,7 @@ impl<H: IsHeader> PraosChainStore<H> {
 impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
     type Error = NoncesError;
 
-    fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce> {
+    fn get_nonce(&self, header: &Hash<HEADER>) -> Option<Nonce> {
         self.store.get_nonces(header).map(|nonces| nonces.active)
     }
 
@@ -132,15 +134,15 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]
     UnknownParent {
-        header: HeaderHash,
-        parent: HeaderHash,
+        header: Hash<HEADER>,
+        parent: Hash<HEADER>,
     },
 
     #[error("unknown header: {header}")]
-    UnknownHeader { header: HeaderHash },
+    UnknownHeader { header: Hash<HEADER> },
 
     #[error("no parent header for: {header} (where one is clearly expected)")]
-    NoParentHeader { header: HeaderHash },
+    NoParentHeader { header: Hash<HEADER> },
 
     #[error("{0}")]
     StoreError(#[from] StoreError),
@@ -153,11 +155,13 @@ pub enum NoncesError {
 mod test {
     use super::*;
     use crate::test::include_header;
-    use amaru_kernel::{BlockHeader, IsHeader, protocol_parameters::GlobalParameters};
-    use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor};
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{Praos, ReadOnlyChainStore};
-    use amaru_slot_arithmetic::Epoch;
+    use amaru_kernel::{
+        BlockHeader, Epoch, IsHeader, NetworkName, from_cbor, hash,
+        protocol_parameters::GlobalParameters, to_cbor,
+    };
+    use amaru_ouroboros_traits::{
+        Praos, ReadOnlyChainStore, in_memory_consensus_store::InMemConsensusStore,
+    };
     use proptest::{prelude::*, prop_compose, proptest};
     use std::sync::{Arc, LazyLock};
 
@@ -289,7 +293,7 @@ mod test {
                 active: Nonce::from(active),
                 evolving: Nonce::from(evolving),
                 candidate: Nonce::from(candidate),
-                tail: HeaderHash::from(tail),
+                tail: <Hash<HEADER>>::from(tail),
                 epoch,
             }
         }

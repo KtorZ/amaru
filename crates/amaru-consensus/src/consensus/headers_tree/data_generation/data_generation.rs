@@ -20,17 +20,14 @@
 //!
 //!
 
-use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::headers_tree::data_generation::Chain;
-use crate::consensus::headers_tree::tree::Tree;
-use amaru_kernel::is_header::tests::make_header;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{BlockHeader, Bytes, HEADER_HASH_SIZE, Header, HeaderHash, IsHeader};
+use crate::consensus::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
+use amaru_kernel::{
+    BlockHeader, Bytes, Hash, Header, IsHeader, hash::size::HEADER, make_header, peer::Peer,
+};
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
-use rand::prelude::StdRng;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 use std::sync::Arc;
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
@@ -235,7 +232,7 @@ fn generate_headers(
     length: usize,
     start_block: u64,
     start_slot: u64,
-    parent: Option<HeaderHash>,
+    parent: Option<Hash<HEADER>>,
     rng: &mut StdRng,
 ) -> Vec<BlockHeader> {
     let mut headers: Vec<BlockHeader> = Vec::new();
@@ -254,12 +251,12 @@ fn generate_headers(
 fn generate_header(
     block: u64,
     slot: u64,
-    parent: Option<HeaderHash>,
+    parent: Option<Hash<HEADER>>,
     rng: &mut StdRng,
 ) -> BlockHeader {
     let mut header: Header = make_header(block, slot, parent);
     // introduce some randomness in the header so that the hash is not predictable
-    header.body_signature = Bytes::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng));
+    header.body_signature = Bytes::from(random_bytes_with_rng(HEADER, rng));
     BlockHeader::from(header)
 }
 

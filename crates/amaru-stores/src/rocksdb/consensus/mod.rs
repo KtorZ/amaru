@@ -18,8 +18,8 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor,
-    from_cbor, to_cbor,
+    BlockHeader, Hash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, hash::size::HEADER,
+    to_cbor,
 };
 use amaru_ouroboros_traits::{
     ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
@@ -28,10 +28,12 @@ use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, R
 use std::{fs, path::PathBuf};
 use tracing::{Level, instrument};
 
-use crate::rocksdb::RocksDbConfig;
-use crate::rocksdb::consensus::util::{
-    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
-    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+use crate::rocksdb::{
+    RocksDbConfig,
+    consensus::util::{
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+    },
 };
 
 pub struct RocksDBStore {
@@ -147,7 +149,7 @@ pub(crate) fn store_chain_point(
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
         $(impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
-            fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+            fn load_header(&self, hash: &Hash<HEADER>) -> Option<H> {
                 let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
                 self.db
                     .get_pinned(prefix)
@@ -156,7 +158,7 @@ macro_rules! impl_ReadOnlyChainStore {
             }
 
 
-            fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+            fn get_children(&self, hash: &Hash<HEADER>) -> Vec<Hash<HEADER>> {
                 let mut result = Vec::new();
                 let mut opts = ReadOptions::default();
                 opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
@@ -164,8 +166,8 @@ macro_rules! impl_ReadOnlyChainStore {
                 for res in self.db.iterator_opt(IteratorMode::Start, opts) {
                     match res {
                         Ok((key, _value)) => {
-                            let mut arr = [0u8; HEADER_HASH_SIZE];
-                            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER_HASH_SIZE)..]);
+                            let mut arr = [0u8; HEADER];
+                            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER)..]);
                             result.push(Hash::from(arr));
                         }
                         Err(err) => panic!("error iterating over children: {}", err),
@@ -174,13 +176,13 @@ macro_rules! impl_ReadOnlyChainStore {
                 result
             }
 
-            fn get_anchor_hash(&self) -> HeaderHash {
+            fn get_anchor_hash(&self) -> Hash<HEADER> {
                 self.db
                     .get_pinned(&ANCHOR_PREFIX)
                     .ok()
                     .flatten()
                     .and_then(|bytes| {
-                        if bytes.len() == HEADER_HASH_SIZE {
+                        if bytes.len() == HEADER {
                             Some(Hash::from(bytes.as_ref()))
                         } else {
                             None
@@ -189,13 +191,13 @@ macro_rules! impl_ReadOnlyChainStore {
                     .unwrap_or(ORIGIN_HASH)
             }
 
-            fn get_best_chain_hash(&self) -> HeaderHash {
+            fn get_best_chain_hash(&self) -> Hash<HEADER> {
                 self.db
                     .get_pinned(&BEST_CHAIN_PREFIX)
                     .ok()
                     .flatten()
                     .and_then(|bytes| {
-                        if bytes.len() == HEADER_HASH_SIZE {
+                        if bytes.len() == HEADER {
                             Some(Hash::from(bytes.as_ref()))
                         } else {
                             None
@@ -204,14 +206,14 @@ macro_rules! impl_ReadOnlyChainStore {
                     .unwrap_or(ORIGIN_HASH)
             }
 
-            fn has_header(&self, hash: &HeaderHash) -> bool {
+            fn has_header(&self, hash: &Hash<HEADER>) -> bool {
                 let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
                 self.db.get_pinned(prefix)
                     .map(|opt| opt.is_some())
                     .unwrap_or(false)
             }
 
-            fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+            fn get_nonces(&self, header: &Hash<HEADER>) -> Option<Nonces> {
                 self.db
                     .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
                     .ok()
@@ -220,7 +222,7 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(from_cbor)
             }
 
-            fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+            fn load_block(&self, hash: &Hash<HEADER>) -> Result<RawBlock, StoreError> {
                 self.db
                     .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
                     .map_err(|e| StoreError::ReadError {
@@ -230,14 +232,14 @@ macro_rules! impl_ReadOnlyChainStore {
                     .map(|bytes| bytes.as_ref().into())
             }
 
-            fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+            fn load_from_best_chain(&self, point: &Point) -> Option<Hash<HEADER>> {
                 let slot = u64::from(point.slot_or_default()).to_be_bytes();
                 self.db
                     .get_pinned([&CHAIN_PREFIX[..], &slot[..]].concat())
                     .ok()
                     .flatten()
                     .and_then(|bytes| {
-                        if bytes.len() == HEADER_HASH_SIZE {
+                        if bytes.len() == HEADER {
                             let hash = Hash::from(bytes.as_ref());
                             if *hash == *point.hash() {
                                 Some(hash)
@@ -258,8 +260,8 @@ macro_rules! impl_ReadOnlyChainStore {
                 if let Some(Ok((k, v))) = iter.next() {
                     let slot_bytes = &k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8];
                     let slot = u64::from_be_bytes(slot_bytes.try_into().unwrap());
-                    if v.len() == HEADER_HASH_SIZE {
-                        let hash = HeaderHash::from(v.as_ref());
+                    if v.len() == HEADER {
+                        let hash = <Hash<HEADER>>::from(v.as_ref());
                         Some(Point::Specific(slot.into(), hash))
                     } else {
                         None
@@ -289,7 +291,7 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
     }
 
     #[allow(clippy::panic)]
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<HEADER>, Nonces)> + '_> {
         Box::new(
             self.db
                 .prefix_iterator(NONCES_PREFIX)
@@ -304,7 +306,7 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
     }
 
     #[allow(clippy::panic)]
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<HEADER>, RawBlock)> + '_> {
         let mut opts = ReadOptions::default();
         opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
         Box::new(
@@ -323,10 +325,10 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
     #[allow(clippy::expect_used)]
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-        let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
-        let mut current_parent: Option<HeaderHash> = None;
-        let mut current_children: Vec<HeaderHash> = Vec::new();
+    ) -> Box<dyn Iterator<Item = (Hash<HEADER>, Vec<Hash<HEADER>>)> + '_> {
+        let mut groups: Vec<(Hash<HEADER>, Vec<Hash<HEADER>>)> = Vec::new();
+        let mut current_parent: Option<Hash<HEADER>> = None;
+        let mut current_children: Vec<Hash<HEADER>> = Vec::new();
         let mut opts = ReadOptions::default();
         opts.set_iterate_range(PrefixRange(&CHILD_PREFIX[..]));
 
@@ -335,15 +337,15 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
             //Key layout: [CHILD_PREFIX][parent][child]
             let parent_start = CONSENSUS_PREFIX_LEN;
-            let parent_end = parent_start + HEADER_HASH_SIZE;
+            let parent_end = parent_start + HEADER;
             let child_start = parent_end;
-            let child_end = child_start + HEADER_HASH_SIZE;
+            let child_end = child_start + HEADER;
 
-            let mut parent_arr = [0u8; HEADER_HASH_SIZE];
+            let mut parent_arr = [0u8; HEADER];
             parent_arr.copy_from_slice(&k[parent_start..parent_end]);
             let parent_hash = Hash::from(parent_arr);
 
-            let mut child_arr = [0u8; HEADER_HASH_SIZE];
+            let mut child_arr = [0u8; HEADER];
 
             child_arr.copy_from_slice(&k[child_start..child_end]);
             let child_hash = Hash::from(child_arr);
@@ -396,7 +398,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         })
     }
 
-    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &Hash<HEADER>, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError {
@@ -408,7 +410,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
                  skip_all,
                  name = "consensus.store.store_block",
                  fields(hash = %hash))]
-    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &Hash<HEADER>, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -416,7 +418,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         self.db
             .put(ANCHOR_PREFIX, hash.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -424,7 +426,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_best_chain_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         self.db
             .put(BEST_CHAIN_PREFIX, hash.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -488,23 +490,18 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
 #[cfg(test)]
 pub mod test {
-    use crate::rocksdb::consensus::migration::migrate_db_path;
-    use crate::rocksdb::consensus::util::CHAIN_DB_VERSION;
-
     use super::*;
+    use crate::rocksdb::consensus::{migration::migrate_db_path, util::CHAIN_DB_VERSION};
     use amaru_kernel::{
-        BlockHeader, Nonce, ORIGIN_HASH,
-        is_header::tests::{any_header_with_parent, any_headers_chain, make_header, run},
-        tests::{random_bytes, random_hash},
+        BlockHeader, Nonce, ORIGIN_HASH, any_header_hash, any_header_with_parent,
+        any_headers_chain, make_header,
+        utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
         ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
-    use std::collections::BTreeMap;
-    use std::path::Path;
-    use std::sync::Arc;
-    use std::{fs, io};
+    use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -529,7 +526,7 @@ pub mod test {
     #[test]
     fn rocksdb_chain_store_can_get_block_it_puts() {
         with_db(|db| {
-            let hash: HeaderHash = random_bytes(32).as_slice().into();
+            let hash: Hash<HEADER> = random_bytes(32).as_slice().into();
             let block = RawBlock::from(&*vec![1; 64]);
 
             db.store_block(&hash, &block).unwrap();
@@ -541,7 +538,7 @@ pub mod test {
     #[test]
     fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
         with_db(|db| {
-            let nonexistent_hash: HeaderHash = random_bytes(32).as_slice().into();
+            let nonexistent_hash: Hash<HEADER> = random_bytes(HEADER).as_slice().into();
             let result = db.load_block(&nonexistent_hash);
 
             assert_eq!(
@@ -561,7 +558,7 @@ pub mod test {
     #[test]
     fn store_best_chain_hash() {
         with_db(|db| {
-            let best_chain = random_hash();
+            let best_chain = run_strategy(any_header_hash());
             db.set_best_chain_hash(&best_chain).unwrap();
             assert_eq!(db.get_best_chain_hash(), best_chain);
         })
@@ -577,7 +574,7 @@ pub mod test {
     #[test]
     fn store_anchor_hash() {
         with_db(|db| {
-            let anchor = random_hash();
+            let anchor = run_strategy(any_header_hash());
             db.set_anchor_hash(&anchor).unwrap();
             assert_eq!(db.get_anchor_hash(), anchor);
         })
@@ -589,8 +586,8 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3
-            let mut chain = run(any_headers_chain(3));
-            let h3 = run(any_header_with_parent(chain[1].hash()));
+            let mut chain = run_strategy(any_headers_chain(3));
+            let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
             chain.push(h3.clone());
 
             for header in &chain {
@@ -635,10 +632,10 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3 -> h4
-            let mut chain = run(any_headers_chain(3));
-            let h3 = run(any_header_with_parent(chain[1].hash()));
+            let mut chain = run_strategy(any_headers_chain(3));
+            let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
             chain.push(h3.clone());
-            let h4 = run(any_header_with_parent(h3.hash()));
+            let h4 = run_strategy(any_header_with_parent(h3.hash()));
             chain.push(h4);
 
             let mut expected = BTreeMap::new();
@@ -664,7 +661,7 @@ pub mod test {
     #[test]
     fn load_nonces() {
         with_db_path(|(db, path)| {
-            let chain = run(any_headers_chain(3));
+            let chain = run_strategy(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let nonces = Nonces {
@@ -691,7 +688,7 @@ pub mod test {
     #[test]
     fn load_blocks() {
         with_db_path(|(db, path)| {
-            let chain = run(any_headers_chain(3));
+            let chain = run_strategy(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let block = RawBlock::from(random_bytes(32).as_slice());
@@ -714,7 +711,7 @@ pub mod test {
         with_db(|db| {
             // create a chain and store it as the best chain
             // with its anchor and tip.
-            let chain = run(any_headers_chain(15));
+            let chain = run_strategy(any_headers_chain(15));
             for header in &chain {
                 db.store_header(header).unwrap();
             }
@@ -735,7 +732,7 @@ pub mod test {
     fn update_best_chain_to_block_slot_given_new_block_is_valid() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-            let new_tip = run(any_header_with_parent(chain[9].hash()));
+            let new_tip = run_strategy(any_header_with_parent(chain[9].hash()));
 
             store
                 .roll_forward_chain(&new_tip.point())
@@ -795,7 +792,7 @@ pub mod test {
     fn next_best_chain_returns_none_given_point_is_not_on_chain() {
         with_db(|store| {
             let _chain = populate_db(store.clone());
-            let invalid_point = Point::Specific(100.into(), random_hash());
+            let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
 
             assert!(store.next_best_chain(&invalid_point).is_none());
         });
@@ -816,7 +813,7 @@ pub mod test {
     fn raises_error_if_rollback_is_not_on_best_chain() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-            let new_tip = run(any_header_with_parent(chain[6].hash()));
+            let new_tip = run_strategy(any_header_with_parent(chain[6].hash()));
 
             let result = store.rollback_chain(&new_tip.point());
 
@@ -939,7 +936,7 @@ pub mod test {
         let db = RocksDBStore::open(&config)
             .expect("DB should successfully be opened as it's been migrated");
         assert_eq!((1, 2), result);
-        let header: Option<HeaderHash> =
+        let header: Option<Hash<HEADER>> =
             <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
                 &db,
                 &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
@@ -989,7 +986,7 @@ pub mod test {
         // populate DB
         for slot in 1..10 {
             let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
-            let header_hash = random_hash();
+            let header_hash = run_strategy(any_header_hash());
             db.put(&prefix, header_hash)
                 .expect("should put data successfully");
         }
@@ -1009,7 +1006,7 @@ pub mod test {
         while let Some(Ok((_, v))) = iter.next()
             && count < 3
         {
-            let _header_hash: HeaderHash = Hash::from(v.as_ref());
+            let _header_hash: Hash<HEADER> = Hash::from(v.as_ref());
             count += 1;
         }
 
@@ -1035,7 +1032,7 @@ pub mod test {
     const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
 
     fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
-        let chain = run(any_headers_chain(10));
+        let chain = run_strategy(any_headers_chain(10));
 
         for header in chain.iter() {
             store
@@ -1079,7 +1076,7 @@ pub mod test {
     #[expect(dead_code)]
     fn create_sample_db(path: &Path) {
         let db = initialise_test_rw_store(path);
-        let chain = run(any_headers_chain(10));
+        let chain = run_strategy(any_headers_chain(10));
         for header in &chain {
             let block = RawBlock::from(random_bytes(32).as_slice());
             db.store_header(header).unwrap();
@@ -1121,8 +1118,8 @@ pub mod test {
     }
 
     fn sort_entries(
-        mut v: Vec<(HeaderHash, Vec<HeaderHash>)>,
-    ) -> Vec<(HeaderHash, Vec<HeaderHash>)> {
+        mut v: Vec<(Hash<HEADER>, Vec<Hash<HEADER>>)>,
+    ) -> Vec<(Hash<HEADER>, Vec<Hash<HEADER>>)> {
         v.sort_by_key(|(k, _)| *k);
         for (_, children) in &mut v {
             children.sort();

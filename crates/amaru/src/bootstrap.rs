@@ -15,8 +15,8 @@
 use crate::{default_initial_nonces, default_snapshots_dir};
 use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
-    BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, Nonce, Point, from_cbor,
-    network::NetworkName,
+    BlockHeader, EraHistory, Hash, IsHeader, NetworkName, Nonce, Point, from_cbor,
+    hash::size::HEADER,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -194,7 +194,7 @@ pub struct InitialNonces {
     pub active: Nonce,
     pub evolving: Nonce,
     pub candidate: Nonce,
-    pub tail: HeaderHash,
+    pub tail: Hash<HEADER>,
 }
 
 pub async fn import_nonces(
@@ -389,17 +389,15 @@ fn make_era_history(
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, str::FromStr};
-
-    use amaru_kernel::{Hash, HeaderHash, Point, Slot, network::NetworkName};
-    use amaru_slot_arithmetic::TimeMs;
-
     use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
+    use amaru_kernel::{Hash, NetworkName, Point, Slot, hash::size::HEADER};
+    use amaru_slot_arithmetic::TimeMs;
+    use std::{path::PathBuf, str::FromStr};
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {
         let dir = PathBuf::from("tests/data/");
-        let hash: HeaderHash =
+        let hash: Hash<HEADER> =
             Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
                 .unwrap();
         let point = Point::Specific(56073562.into(), hash);

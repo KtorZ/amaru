@@ -13,14 +13,18 @@
 // limitations under the License.
 
 use crate::CanValidateTransactions;
-use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder, decode, encode};
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Hash, Hasher};
+use amaru_kernel::{
+    Hash, Hasher, TransactionId,
+    cbor::{Decode, Decoder, Encode, Encoder, decode, encode},
+    peer::Peer,
+};
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+    pin::Pin,
+    sync::Arc,
+};
 
 /// An simple mempool interface to:
 ///
@@ -152,7 +156,7 @@ pub enum TxOrigin {
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub struct TxId(Hash<32>);
+pub struct TxId(TransactionId);
 
 impl Encode<()> for TxId {
     fn encode<W: encode::Write>(

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, protocol_parameters::GlobalParameters,
+    BlockHeader, Hash, Point, RawBlock, hash::size::HEADER, protocol_parameters::GlobalParameters,
 };
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use pure_stage::{
@@ -45,35 +45,35 @@ impl<T> Store<T> {
 }
 
 impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &Hash<HEADER>) -> Option<BlockHeader> {
         self.external_sync(LoadHeaderEffect::new(*hash))
     }
 
-    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+    fn get_children(&self, hash: &Hash<HEADER>) -> Vec<Hash<HEADER>> {
         self.external_sync(GetChildrenEffect::new(*hash))
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_hash(&self) -> Hash<HEADER> {
         self.external_sync(GetAnchorHashEffect::new())
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_hash(&self) -> Hash<HEADER> {
         self.external_sync(GetBestChainHashEffect::new())
     }
 
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &Hash<HEADER>) -> Result<RawBlock, StoreError> {
         self.external_sync(LoadBlockEffect::new(*hash))
     }
 
-    fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
+    fn get_nonces(&self, hash: &Hash<HEADER>) -> Option<Nonces> {
         self.external_sync(GetNoncesEffect::new(*hash))
     }
 
-    fn has_header(&self, hash: &HeaderHash) -> bool {
+    fn has_header(&self, hash: &Hash<HEADER>) -> bool {
         self.external_sync(HasHeaderEffect::new(*hash))
     }
 
-    fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
+    fn load_from_best_chain(&self, _point: &Point) -> Option<Hash<HEADER>> {
         None
     }
 
@@ -83,11 +83,11 @@ impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
 }
 
 impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         self.external_sync(SetAnchorHashEffect::new(*hash))
     }
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_best_chain_hash(&self, hash: &Hash<HEADER>) -> Result<(), StoreError> {
         self.external_sync(SetBestChainHashEffect::new(*hash))
     }
 
@@ -95,11 +95,11 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
         self.external_sync(StoreHeaderEffect::new(header.clone()))
     }
 
-    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &Hash<HEADER>, block: &RawBlock) -> Result<(), StoreError> {
         self.external_sync(StoreBlockEffect::new(hash, block.clone()))
     }
 
-    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &Hash<HEADER>, nonces: &Nonces) -> Result<(), StoreError> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
     }
 
@@ -149,12 +149,12 @@ impl ExternalEffectSync for StoreHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct StoreBlockEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
     block: RawBlock,
 }
 
 impl StoreBlockEffect {
-    pub fn new(hash: &HeaderHash, block: RawBlock) -> Self {
+    pub fn new(hash: &Hash<HEADER>, block: RawBlock) -> Self {
         Self { hash: *hash, block }
     }
 }
@@ -180,11 +180,11 @@ impl ExternalEffectSync for StoreBlockEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SetAnchorHashEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl SetAnchorHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -210,11 +210,11 @@ impl ExternalEffectSync for SetAnchorHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SetBestChainHashEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl SetBestChainHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -240,12 +240,12 @@ impl ExternalEffectSync for SetBestChainHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PutNoncesEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
     nonces: Nonces,
 }
 
 impl PutNoncesEffect {
-    pub fn new(hash: HeaderHash, nonces: Nonces) -> Self {
+    pub fn new(hash: Hash<HEADER>, nonces: Nonces) -> Self {
         Self { hash, nonces }
     }
 }
@@ -271,11 +271,11 @@ impl ExternalEffectSync for PutNoncesEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct HasHeaderEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl HasHeaderEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -301,11 +301,11 @@ impl ExternalEffectSync for HasHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LoadHeaderEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl LoadHeaderEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -331,11 +331,11 @@ impl ExternalEffectSync for LoadHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetChildrenEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl GetChildrenEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -354,7 +354,7 @@ impl ExternalEffect for GetChildrenEffect {
 }
 
 impl ExternalEffectAPI for GetChildrenEffect {
-    type Response = Vec<HeaderHash>;
+    type Response = Vec<Hash<HEADER>>;
 }
 
 impl ExternalEffectSync for GetChildrenEffect {}
@@ -382,7 +382,7 @@ impl ExternalEffect for GetAnchorHashEffect {
 }
 
 impl ExternalEffectAPI for GetAnchorHashEffect {
-    type Response = HeaderHash;
+    type Response = Hash<HEADER>;
 }
 
 impl ExternalEffectSync for GetAnchorHashEffect {}
@@ -410,18 +410,18 @@ impl ExternalEffect for GetBestChainHashEffect {
 }
 
 impl ExternalEffectAPI for GetBestChainHashEffect {
-    type Response = HeaderHash;
+    type Response = Hash<HEADER>;
 }
 
 impl ExternalEffectSync for GetBestChainHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LoadBlockEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl LoadBlockEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }
@@ -447,11 +447,11 @@ impl ExternalEffectSync for LoadBlockEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetNoncesEffect {
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
 }
 
 impl GetNoncesEffect {
-    pub fn new(hash: HeaderHash) -> Self {
+    pub fn new(hash: Hash<HEADER>) -> Self {
         Self { hash }
     }
 }

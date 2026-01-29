@@ -13,16 +13,20 @@
 // limitations under the License.
 
 use crate::{
-    Hash, Hasher, OperationalCert, PoolId, VrfCert, ed25519, issuer_to_pool_id, kes,
+    OperationalCert, VrfCert, ed25519, issuer_to_pool_id, kes,
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
     vrf,
 };
-use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Header, HeaderHash, Nonce};
+use amaru_kernel::{
+    Hash, Hasher, Header, Nonce, PoolId, Slot, hash::size::HEADER,
+    protocol_parameters::ConsensusParameters,
+};
 use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
-use amaru_slot_arithmetic::Slot;
-use std::sync::Arc;
-use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
+use std::{
+    array::TryFromSliceError,
+    ops::Deref,
+    sync::{Arc, LazyLock},
+};
 use thiserror::Error;
 
 /// The certified natural max value represents 2^256 in praos consensus
@@ -212,7 +216,7 @@ pub enum AssertVrfProofError {
     MalformedProof(#[from] vrf::ProofFromBytesError),
 
     #[error("Invalid VRF proof: {0}")]
-    InvalidProof(vrf::ProofVerifyError, Slot, HeaderHash, Vec<u8>),
+    InvalidProof(vrf::ProofVerifyError, Slot, Hash<HEADER>, Vec<u8>),
 
     #[error("could not convert slice to array")]
     TryFromSliceError,

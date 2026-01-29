@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use crate::context::PreparationContext;
-use amaru_kernel::{Block, Bytes, cbor, ed25519, into_sized_array};
-use std::{array::TryFromSliceError, fmt, fmt::Display};
-use thiserror::Error;
+use amaru_kernel::{Block, cbor};
+use std::{fmt, fmt::Display};
 use tracing::{Level, instrument};
 
 pub use block::execute as validate_block;
@@ -66,54 +65,6 @@ pub fn parse_block(bytes: &[u8]) -> Result<Block, cbor::decode::Error> {
     Ok(block)
 }
 
-pub(crate) fn format_vec<T: Display>(items: &[T]) -> String {
-    items
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-#[derive(Debug, Error)]
-pub enum InvalidEd25519Signature {
-    #[error("invalid signature size: {error:?}")]
-    InvalidSignatureSize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid verification key size: {error:?}")]
-    InvalidKeySize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid signature for given key")]
-    InvalidSignature,
-}
-
-pub(crate) fn verify_ed25519_signature(
-    vkey: &Bytes,
-    signature: &Bytes,
-    message: &[u8],
-) -> Result<(), InvalidEd25519Signature> {
-    // TODO: vkey should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
-        InvalidEd25519Signature::InvalidKeySize { error, expected }
-    })?);
-
-    // TODO: signature should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
-        InvalidEd25519Signature::InvalidSignatureSize { error, expected }
-    })?);
-
-    if !public_key.verify(message, &signature) {
-        Err(InvalidEd25519Signature::InvalidSignature)
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -127,10 +78,10 @@ pub(crate) mod tests {
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::{
-        ArenaPool, EraHistory,
-        network::NetworkName,
+        EraHistory, NetworkName,
         protocol_parameters::{self, ProtocolParameters},
     };
+    use amaru_plutus::arena_pool::ArenaPool;
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -226,10 +177,10 @@ pub(crate) mod tests {
 
     macro_rules! fixture_context {
         ($hash:literal) => {
-            include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
+            amaru_kernel::include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
         };
         ($hash:literal, $variant:literal) => {
-            include_json!(concat!(
+            amaru_kernel::include_json!(concat!(
                 "transactions/preprod/",
                 $hash,
                 "/",

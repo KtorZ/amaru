@@ -13,14 +13,10 @@
 // limitations under the License.
 
 use crate::consensus;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{HeaderHash, Point};
-use amaru_ouroboros_traits::StoreError;
-use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
+use amaru_kernel::{Hash, Peer, Point, hash::size::HEADER};
+use amaru_ouroboros_traits::{StoreError, can_validate_blocks::HeaderValidationError};
 use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::Display;
+use std::{fmt, fmt::Display};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -32,15 +28,15 @@ pub enum ConsensusError {
     #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, HeaderValidationError),
     #[error("Failed to store header at {0}: {1}")]
-    StoreHeaderFailed(HeaderHash, StoreError),
+    StoreHeaderFailed(Hash<HEADER>, StoreError),
     #[error("Failed to remove header at {0}: {1}")]
-    RemoveHeaderFailed(HeaderHash, StoreError),
+    RemoveHeaderFailed(Hash<HEADER>, StoreError),
     #[error("Failed to set a new anchor at {0}: {1}")]
-    SetAnchorHashFailed(HeaderHash, StoreError),
+    SetAnchorHashFailed(Hash<HEADER>, StoreError),
     #[error("Failed to set a best chain at {0}: {1}")]
-    SetBestChainHashFailed(HeaderHash, StoreError),
+    SetBestChainHashFailed(Hash<HEADER>, StoreError),
     #[error("Failed to update a best chain at {0}->{1}: {2}")]
-    UpdateBestChainFailed(HeaderHash, HeaderHash, StoreError),
+    UpdateBestChainFailed(Hash<HEADER>, Hash<HEADER>, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, StoreError),
     #[error(
@@ -57,7 +53,7 @@ pub enum ConsensusError {
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
     #[error("Unknown point {0}, bailing out")]
-    UnknownPoint(HeaderHash),
+    UnknownPoint(Hash<HEADER>),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
@@ -66,8 +62,8 @@ pub enum ConsensusError {
     )]
     InvalidRollback {
         peer: Peer,
-        rollback_point: HeaderHash,
-        max_point: HeaderHash,
+        rollback_point: Hash<HEADER>,
+        max_point: Hash<HEADER>,
     },
     #[error("Invalid block from peer {} at {}", peer, point)]
     InvalidBlock { peer: Peer, point: Point },
@@ -85,7 +81,7 @@ pub enum ConsensusError {
 pub struct InvalidHeaderParentData {
     pub(crate) peer: Peer,
     pub(crate) forwarded: Point,
-    pub(crate) actual: Option<HeaderHash>,
+    pub(crate) actual: Option<Hash<HEADER>>,
     pub(crate) expected: Point,
 }
 
@@ -141,7 +137,7 @@ impl PartialEq for ProcessingFailed {
     }
 }
 
-impl Serialize for ProcessingFailed {
+impl serde::Serialize for ProcessingFailed {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -153,12 +149,12 @@ impl Serialize for ProcessingFailed {
     }
 }
 
-impl<'de> Deserialize<'de> for ProcessingFailed {
+impl<'de> serde::Deserialize<'de> for ProcessingFailed {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
+        #[derive(serde::Deserialize)]
         struct ProcessingFailedHelper {
             peer: Option<Peer>,
             error: String,

@@ -18,11 +18,11 @@ use crate::{
     store::{HistoricalStores, Store},
 };
 use amaru_kernel::{
-    ArenaPool, EraHistory, Point, RawBlock, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    EraHistory, NetworkName, Point, RawBlock, protocol_parameters::GlobalParameters,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
+use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
 use std::sync::{Arc, Mutex};
 

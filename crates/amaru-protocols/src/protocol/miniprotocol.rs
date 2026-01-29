@@ -16,7 +16,7 @@ use crate::{
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
 };
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::NonEmptyBytes;
 use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
 use std::future::Future;
 

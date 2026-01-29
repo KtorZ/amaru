@@ -14,8 +14,8 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
-    network::NetworkName,
+    Bound, EraHistory, EraParams, Hash, NetworkName, Nonce, Point, Summary, cbor,
+    hash::size::HEADER,
 };
 use clap::Parser;
 use std::path::{Path, PathBuf};
@@ -158,7 +158,7 @@ async fn convert_snapshot_to(
     d.array()?;
     let slot = d.u64()?;
     let _height = d.u64()?;
-    let hash: HeaderHash = d.decode()?;
+    let hash: Hash<HEADER> = d.decode()?;
 
     // ledger state
     let begin = d.position();
@@ -183,7 +183,7 @@ async fn convert_snapshot_to(
     d.array()?;
     // NOTE: The encoding of an AnnTip is not consistent with the encoding of a Tip
     let tip_slot = d.u64()?;
-    let tip_hash: HeaderHash = d.decode()?;
+    let tip_hash: Hash<HEADER> = d.decode()?;
     let _tip_height = d.u64()?;
 
     // ChainDepState for Praos
@@ -255,7 +255,7 @@ async fn convert_snapshot_to(
 async fn write_era_history(
     target_dir: &Path,
     slot: u64,
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("history.{}.{}.json", slot, hash));
@@ -320,7 +320,7 @@ fn decode_eras(
 async fn write_nonces(
     target_dir: &Path,
     slot: u64,
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
     nonces: InitialNonces,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("nonces.{}.{}.json", slot, hash));
@@ -332,7 +332,7 @@ async fn write_nonces(
 async fn write_ledger_snapshot(
     target_dir: &Path,
     slot: u64,
-    hash: HeaderHash,
+    hash: Hash<HEADER>,
     ledger_data: &[u8],
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
@@ -345,7 +345,7 @@ async fn write_ledger_snapshot(
 mod test {
     use super::*;
     use amaru::bootstrap::import_snapshots;
-    use amaru_kernel::network::NetworkName;
+    use amaru_kernel::NetworkName;
     use std::path::PathBuf;
     use tokio::fs;
 

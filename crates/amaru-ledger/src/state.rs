@@ -33,18 +33,17 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, Block, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, RawBlock, Slot, StakeCredential,
-    StakeCredentialType, TransactionInput, expect_stake_credential,
-    network::NetworkName,
+    AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory,
+    EraHistoryError, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId,
+    RawBlock, Slot, StakeCredential, StakeCredentialKind, TransactionInput,
+    expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
 };
-use amaru_slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
@@ -863,8 +862,8 @@ pub fn refund_many<'store>(
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
                 target: EVENT_TARGET,
-                type = %StakeCredentialType::from(&account),
-                account = %stake_credential_hash(&account),
+                type = %StakeCredentialKind::from(&account),
+                account = %account.as_hash(),
                 %deposit,
                 "refund"
             );

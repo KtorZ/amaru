@@ -14,18 +14,21 @@
 
 use crate::{
     context::{UtxoSlice, WitnessSlice},
-    rules::{WithPosition, format_vec},
+    rules::WithPosition,
 };
 use amaru_kernel::{
-    HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, TransactionInput,
-    protocol_parameters::ProtocolParameters, to_network_id,
+    AsIndex, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network,
+    TransactionInput, protocol_parameters::ProtocolParameters, utils::string::display_collection,
 };
 use thiserror::Error;
 
 mod inherent_value;
 
 #[derive(Debug, Error)]
-#[error("invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
+#[error(
+    "invalid transaction outputs: [{}]",
+    display_collection(invalid_outputs)
+)]
 pub struct InvalidOutputs {
     invalid_outputs: Vec<WithPosition<InvalidOutput>>,
 }
@@ -103,8 +106,8 @@ fn validate_network(
 
     if &given_network != expected_network {
         Err(InvalidOutput::WrongNetwork {
-            expected: to_network_id(expected_network),
-            actual: to_network_id(&given_network),
+            expected: expected_network.as_index(),
+            actual: given_network.as_index(),
         })
     } else {
         Ok(())

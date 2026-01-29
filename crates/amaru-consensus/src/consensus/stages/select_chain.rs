@@ -16,22 +16,20 @@ use crate::consensus::{
     EVENT_TARGET,
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ValidationFailed},
+    events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
     headers_tree::{HeadersTree, HeadersTreeState},
     span::HasSpan,
 };
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, Point,
-    consensus_events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
-    peer::Peer,
-    string_utils::ListToString,
+    BlockHeader, Hash, IsHeader, Peer, Point, hash::size::HEADER, utils::string::ListToString,
 };
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::{
     fmt::{Debug, Display, Formatter},
     mem,
+    sync::Arc,
 };
 use tracing::{Instrument, Span, debug, info, trace};
 
@@ -235,8 +233,8 @@ pub enum RollbackChainSelection<H: IsHeader> {
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit {
         peer: Peer,
-        rollback_point: HeaderHash,
-        max_point: HeaderHash,
+        rollback_point: Hash<HEADER>,
+        max_point: Hash<HEADER>,
     },
 
     /// The current best chain has not changed
@@ -367,13 +365,15 @@ pub fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::errors::InvalidHeaderParentData;
-    use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::{
-        effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
+        effects::mock_consensus_ops,
+        errors::{InvalidHeaderParentData, ValidationFailed},
+        headers_tree::{
+            Tracker,
+            Tracker::{Me, SomePeer},
+        },
     };
-    use amaru_kernel::is_header::tests::{any_headers_chain, run};
-    use amaru_kernel::peer::Peer;
+    use amaru_kernel::{Peer, any_headers_chain, utils::tests::run_strategy};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -381,7 +381,7 @@ mod tests {
     #[tokio::test]
     async fn a_roll_forward_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let headers = run(any_headers_chain(2));
+        let headers = run_strategy(any_headers_chain(2));
         let header0 = headers[0].clone();
         let header1 = headers[1].clone();
 
@@ -418,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn a_rollback_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let headers = run(any_headers_chain(3));
+        let headers = run_strategy(any_headers_chain(3));
         let header0 = headers[0].clone();
         let header1 = headers[1].clone();
         let header2 = headers[2].clone();
@@ -468,7 +468,7 @@ mod tests {
     async fn an_error_does_not_reset_the_tree_state() -> anyhow::Result<()> {
         let peer1 = Peer::new("peer1");
         let peer2 = Peer::new("peer2");
-        let headers = run(any_headers_chain(4));
+        let headers = run_strategy(any_headers_chain(4));
         let header0 = headers[0].clone();
         let header1 = headers[1].clone();
         let header2 = headers[2].clone();
@@ -544,7 +544,7 @@ mod tests {
     fn make_state(
         store: Arc<dyn ChainStore<BlockHeader>>,
         peers: &[&Peer],
-        anchor: &HeaderHash,
+        anchor: &Hash<HEADER>,
     ) -> State {
         let downstream: StageRef<BlockValidationResult> = StageRef::named_for_tests("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named_for_tests("errors");
@@ -581,7 +581,7 @@ mod tests {
         }
     }
 
-    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<HeaderHash>)>) {
+    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<Hash<HEADER>>)>) {
         let actual = select_chain
             .tree_state
             .peers()
