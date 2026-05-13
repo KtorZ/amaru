@@ -49,15 +49,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
   INPUT_TIMEOUT: ${{ inputs.timeout }}
   AMARU_TRACE: ${{ inputs.run_until_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 permissions:
   contents: read
@@ -184,12 +180,7 @@ jobs:
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
 
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Build Amaru
         shell: bash

@@ -7,12 +7,8 @@ env:
   AMARU_TEST_DATA_DIR: simulation/amaru-sim/test-data
   RUST_BACKTRACE: full
   RUST_MIN_STACK: 16777216
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 on:
 
@@ -93,19 +89,11 @@ jobs:
         if: ${{ inputs.test-seed != '' }}
         run: echo "AMARU_TEST_SEED=${{ inputs.test-seed }}" >> $GITHUB_ENV
 
-      - id: timestamp
-        run: echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
       - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            cargo-${{ matrix.environments.target }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Run tests
         shell: bash
