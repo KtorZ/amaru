@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/generate-homebrew-formula \
+    --version <version> \
+    --base-url <base-url> \
+    --macos-arm64-archive <path> \
+    --linux-arm64-archive <path> \
+    --linux-x86_64-archive <path> \
+    [--output <path>]
+
+Example:
+  ./scripts/generate-homebrew-formula \
+    --version 0.1.2 \
+    --base-url https://github.com/pragma-org/amaru/releases/download/0.1.2 \
+    --macos-arm64-archive dist/amaru-0.1.2-macos-aarch64.tar.gz \
+    --linux-arm64-archive dist/amaru-0.1.2-linux-aarch64.tar.gz \
+    --linux-x86_64-archive dist/amaru-0.1.2-linux-x86_64.tar.gz
+EOF
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+version=""
+base_url=""
+macos_arm64_archive=""
+linux_arm64_archive=""
+linux_x86_64_archive=""
+output="packaging/homebrew/amaru.rb"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      version="${2:?missing value for --version}"
+      shift 2
+      ;;
+    --base-url)
+      base_url="${2:?missing value for --base-url}"
+      shift 2
+      ;;
+    --macos-arm64-archive)
+      macos_arm64_archive="${2:?missing value for --macos-arm64-archive}"
+      shift 2
+      ;;
+    --linux-arm64-archive)
+      linux_arm64_archive="${2:?missing value for --linux-arm64-archive}"
+      shift 2
+      ;;
+    --linux-x86_64-archive)
+      linux_x86_64_archive="${2:?missing value for --linux-x86_64-archive}"
+      shift 2
+      ;;
+    --output)
+      output="${2:?missing value for --output}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$version" || -z "$base_url" || -z "$macos_arm64_archive" || -z "$linux_arm64_archive" || -z "$linux_x86_64_archive" ]]; then
+  usage >&2
+  exit 1
+fi
+
+for archive in "$macos_arm64_archive" "$linux_arm64_archive" "$linux_x86_64_archive"; do
+  if [[ ! -f "$archive" ]]; then
+    echo "archive not found: $archive" >&2
+    exit 1
+  fi
+done
+
+macos_arm64_name="$(basename "$macos_arm64_archive")"
+linux_arm64_name="$(basename "$linux_arm64_archive")"
+linux_x86_64_name="$(basename "$linux_x86_64_archive")"
+
+macos_arm64_sha256="$(sha256_file "$macos_arm64_archive")"
+linux_arm64_sha256="$(sha256_file "$linux_arm64_archive")"
+linux_x86_64_sha256="$(sha256_file "$linux_x86_64_archive")"
+
+mkdir -p "$(dirname "$output")"
+
+cat > "$output" <<EOF
+class Amaru < Formula
+  desc "A Cardano blockchain node implementation"
+  homepage "https://github.com/pragma-org/amaru"
+  version "$version"
+  license "Apache-2.0"
+
+  on_macos do
+    depends_on arch: :arm64
+
+    on_arm do
+      url "$base_url/$macos_arm64_name"
+      sha256 "$macos_arm64_sha256"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "$base_url/$linux_arm64_name"
+      sha256 "$linux_arm64_sha256"
+    end
+
+    on_intel do
+      url "$base_url/$linux_x86_64_name"
+      sha256 "$linux_x86_64_sha256"
+    end
+  end
+
+  def install
+    root = Dir["amaru-*"].find { |entry| File.directory?(entry) }
+    odie "expected a single extracted Amaru archive directory" if root.nil?
+
+    bin.install "#{root}/bin/amaru"
+
+    %w[LICENSE README.md CHANGELOG.md].each do |file|
+      path = "#{root}/#{file}"
+      pkgshare.install path if File.exist?(path)
+    end
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/amaru --version")
+  end
+end
+EOF
+
+echo "wrote $output"
