@@ -1,6 +1,12 @@
 name: Post Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to finalize
+        required: true
+        type: string
   release:
     types: [published]
 
@@ -16,17 +22,37 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
+      base_branch: ${{ steps.meta.outputs.base_branch }}
+      target_commitish: ${{ steps.meta.outputs.target_commitish }}
+      published_at: ${{ steps.meta.outputs.published_at }}
 
     steps:
       - name: Determine version
         id: meta
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+          release_tag="${INPUT_RELEASE_TAG:-$EVENT_RELEASE_TAG}"
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}")"
+          target_commitish="$(jq -r '.target_commitish' <<< "$release_json")"
+          published_at="$(jq -r '.published_at' <<< "$release_json")"
+          base_branch="${DEFAULT_BRANCH}"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${target_commitish}" >/dev/null 2>&1; then
+            base_branch="${target_commitish}"
+          fi
+
+          echo "base_branch=${base_branch}" >> "$GITHUB_OUTPUT"
+          echo "published_at=${published_at}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "target_commitish=${target_commitish}" >> "$GITHUB_OUTPUT"
+          echo "version=${release_tag#v}" >> "$GITHUB_OUTPUT"
 
   finalize-release:
     name: Finalize published release
@@ -36,14 +62,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.target_commitish }}
+          ref: ${{ needs.release-metadata.outputs.base_branch }}
 
       - name: Ensure release tag exists
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          TARGET_COMMITISH: ${{ github.event.release.target_commitish }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+          TARGET_COMMITISH: ${{ needs.release-metadata.outputs.target_commitish }}
         run: |
           set -euo pipefail
 
@@ -61,7 +87,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
@@ -87,7 +113,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
           VERSION: ${{ needs.release-metadata.outputs.version }}
-          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+          RELEASE_PUBLISHED_AT: ${{ needs.release-metadata.outputs.published_at }}
         run: |
           set -euo pipefail
           make winget \
@@ -99,12 +125,13 @@ jobs:
       - name: Create packaging update PR
         uses: peter-evans/create-pull-request@v7
         with:
-          branch: codex/release-packaging-${{ github.event.release.tag_name }}
+          base: ${{ needs.release-metadata.outputs.base_branch }}
+          branch: codex/release-packaging-${{ needs.release-metadata.outputs.release_tag }}
           delete-branch: true
-          commit-message: "chore: update release packaging for ${{ github.event.release.tag_name }}"
-          title: "chore: update release packaging for ${{ github.event.release.tag_name }}"
+          commit-message: "chore: update release packaging for ${{ needs.release-metadata.outputs.release_tag }}"
+          title: "chore: update release packaging for ${{ needs.release-metadata.outputs.release_tag }}"
           body: |
-            Updates packaging metadata generated from the published release `${{ github.event.release.tag_name }}`.
+            Updates packaging metadata generated from the published release `${{ needs.release-metadata.outputs.release_tag }}`.
 
             This PR was created automatically by the `release-published` workflow.
           add-paths: |
@@ -118,7 +145,7 @@ jobs:
       artifact_source: release-asset
       artifact_version: ${{ needs.release-metadata.outputs.version }}
       release_tag: ${{ needs.release-metadata.outputs.release_tag }}
-      checkout_ref: ${{ github.event.release.target_commitish }}
+      checkout_ref: ${{ needs.release-metadata.outputs.target_commitish }}
       image_name: ghcr.io/ktorz/amaru
       tag_version: ${{ needs.release-metadata.outputs.release_tag }}
     secrets: inherit
