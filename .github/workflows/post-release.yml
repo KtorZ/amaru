@@ -90,9 +90,9 @@ jobs:
           RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
         run: |
           set -euo pipefail
-          mkdir -p release-assets
-          gh release download "${RELEASE_TAG}" --dir release-assets
-          ls -lh release-assets
+          mkdir -p dist
+          gh release download "${RELEASE_TAG}" --dir dist
+          ls -lh dist
 
       - name: Generate Homebrew formula
         shell: bash
@@ -104,9 +104,9 @@ jobs:
           make homebrew \
             AMARU_VERSION="${VERSION}" \
             HOMEBREW_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
-            HOMEBREW_MACOS_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-macos-aarch64.tar.gz" \
-            HOMEBREW_LINUX_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-linux-aarch64.tar.gz" \
-            HOMEBREW_LINUX_X86_64_ARCHIVE="release-assets/amaru-${VERSION}-linux-x86_64.tar.gz"
+            HOMEBREW_MACOS_ARM64_ARCHIVE="dist/amaru-${VERSION}-macos-aarch64.tar.gz" \
+            HOMEBREW_LINUX_ARM64_ARCHIVE="dist/amaru-${VERSION}-linux-aarch64.tar.gz" \
+            HOMEBREW_LINUX_X86_64_ARCHIVE="dist/amaru-${VERSION}-linux-x86_64.tar.gz"
 
       - name: Generate Nix flake
         shell: bash
@@ -118,9 +118,9 @@ jobs:
           make nix-flake \
             AMARU_VERSION="${VERSION}" \
             NIX_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
-            NIX_MACOS_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-macos-aarch64.tar.gz" \
-            NIX_LINUX_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-linux-aarch64.tar.gz" \
-            NIX_LINUX_X86_64_ARCHIVE="release-assets/amaru-${VERSION}-linux-x86_64.tar.gz"
+            NIX_MACOS_ARM64_ARCHIVE="dist/amaru-${VERSION}-macos-aarch64.tar.gz" \
+            NIX_LINUX_ARM64_ARCHIVE="dist/amaru-${VERSION}-linux-aarch64.tar.gz" \
+            NIX_LINUX_X86_64_ARCHIVE="dist/amaru-${VERSION}-linux-x86_64.tar.gz"
 
       - name: Generate winget manifests
         shell: bash
@@ -133,19 +133,19 @@ jobs:
           make winget \
             AMARU_VERSION="${VERSION}" \
             WINGET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
-            WINGET_WINDOWS_X86_64_ARCHIVE="release-assets/amaru-${VERSION}-windows-x86_64.zip" \
+            WINGET_WINDOWS_X86_64_ARCHIVE="dist/amaru-${VERSION}-windows-x86_64.zip" \
             WINGET_RELEASE_DATE="$(printf '%s' "${RELEASE_PUBLISHED_AT}" | cut -dT -f1)"
 
       - name: Create packaging update PR
         uses: peter-evans/create-pull-request@v7
         with:
           base: ${{ needs.release-metadata.outputs.base_branch }}
-          branch: codex/release-packaging-${{ needs.release-metadata.outputs.release_tag }}
+          branch: release-${{ needs.release-metadata.outputs.release_tag }}
           delete-branch: true
-          commit-message: "chore: update release packaging for ${{ needs.release-metadata.outputs.release_tag }}"
-          title: "chore: update release packaging for ${{ needs.release-metadata.outputs.release_tag }}"
+          commit-message: "chore: update packages metadata for ${{ needs.release-metadata.outputs.release_tag }}"
+          title: "Update packages metadata for ${{ needs.release-metadata.outputs.release_tag }}"
           body: |
-            Updates packaging metadata generated from the published release `${{ needs.release-metadata.outputs.release_tag }}`.
+            Updates packages metadata generated from the published release [`${{ needs.release-metadata.outputs.release_tag }}`](https://github.com/pragma-org/amaru/releases/tag/${{ needs.release-metadata.outputs.release_tag }}).
 
             This PR was created automatically by the `release-published` workflow.
           add-paths: |
