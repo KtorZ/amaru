@@ -2,15 +2,20 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Create a release
+        required: true
+        type: boolean
+        default: false
   push:
     branches: ["main"]
-    tags: ["*.*.*"]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
-  DOCKER_IMAGE: ghcr.io/KtorZ/amaru
+  DOCKER_IMAGE: ghcr.io/ktorz/amaru
 
 permissions:
   contents: read
@@ -20,9 +25,70 @@ permissions:
   id-token: write
 
 jobs:
+  build-metadata:
+    name: Determine build metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      is_release: ${{ steps.meta.outputs.is_release }}
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_patch: ${{ steps.meta.outputs.release_patch }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determine version
+        id: meta
+        shell: bash
+        env:
+          REQUESTED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.release && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          read_amaru_version() {
+            grep -m 1 '^version = "' crates/amaru/Cargo.toml | sed -E 's/^version = "(.*)"$/\1/'
+          }
+
+          if [[ "$REQUESTED_RELEASE" == "true" ]]; then
+            current_version="$(read_amaru_version)"
+
+            if [[ ! "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "expected amaru version to match <major>.<minor>.<patch>, got: $current_version" >&2
+              exit 1
+            fi
+
+            release_patch="$(date -u +%Y%m%d)"
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${release_patch}"
+
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "release_tag=v$version" >> "$GITHUB_OUTPUT"
+            echo "release_patch=$release_patch" >> "$GITHUB_OUTPUT"
+          else
+            current_version="$(read_amaru_version)"
+
+            if [[ ! "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "expected amaru version to match <major>.<minor>.<patch>, got: $current_version" >&2
+              exit 1
+            fi
+
+            if [[ "${BASH_REMATCH[3]}" != "0" ]]; then
+              echo "nightly builds require crates/amaru/Cargo.toml to use a .0 patch version, got: $current_version" >&2
+              exit 1
+            fi
+
+            version="nightly-$(git rev-parse --short=8 HEAD)"
+
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "release_tag=" >> "$GITHUB_OUTPUT"
+            echo "release_patch=0" >> "$GITHUB_OUTPUT"
+          fi
+
   rust-build:
     name: Build ${{ matrix.environments.title }}
     timeout-minutes: 60
+    needs: build-metadata
     strategy:
       matrix:
         environments:
@@ -66,43 +132,73 @@ jobs:
         with:
           mode: "WRITE"
 
-      - name: build metadata
-        id: meta
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME}"
-          else
-            VERSION="nightly-$(git rev-parse --short=8 HEAD)"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: cargo build
+        if: ${{ needs.build-metadata.outputs.is_release == 'true' }}
         shell: bash
+        env:
+          BUILT_OVERRIDE_amaru_PKG_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
         run: |
-          set -e
+          set -euo pipefail
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             ${{ matrix.environments.setup || 'echo "no setup needed..."' }}
           fi
           cargo ${{ matrix.environments.build }} --release --locked --target ${{ matrix.environments.target }}
 
-      - name: prepare files
+      - name: prepare distribution files
+        if: ${{ needs.build-metadata.outputs.is_release == 'true' }}
         id: pack
         shell: bash
         env:
-          OUT: amaru-${{ steps.meta.outputs.version}}-${{ matrix.environments.title }}
+          OUT: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}
+          BUILT_OVERRIDE_amaru_PKG_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
         run: |
-          mkdir -p $OUT
-          mkdir -p $OUT/bin
-          mv ./target/${{ matrix.environments.target }}/release/amaru $OUT/bin/amaru
-          chmod +x $OUT/bin/amaru
-          cp LICENSE README.md CHANGELOG.md $OUT
+          make dist \
+            BUILD_PROFILE=release \
+            AMARU_BIN='./target/${{ matrix.environments.target }}/release/amaru' \
+            DIST_DIR="$OUT"
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: amaru-${{ steps.meta.outputs.version }}-${{ matrix.environments.title }}
+          name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}
           path: ${{ steps.pack.outputs.path }}
+
+  draft-release:
+    name: Create draft release
+    if: ${{ needs.build-metadata.outputs.is_release == 'true' }}
+    needs: [build-metadata, rust-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: amaru-${{ needs.build-metadata.outputs.version }}-*
+          path: ./artifacts
+
+      - name: Package release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          for dir in ./artifacts/*; do
+            name="$(basename "$dir")"
+            tar -C ./artifacts -czf "release-assets/${name}.tar.gz" "$name"
+          done
+          ls -lh release-assets
+
+      - name: Create or update draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ needs.build-metadata.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Amaru ${{ needs.build-metadata.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*.tar.gz
 
   docker-build:
     name: Build docker images
@@ -214,23 +310,6 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version }}
 
-  cargo-publish:
-    name: Publish crates to crates.io
-    runs-on: ubuntu-24.04
-    if: ${{ github.ref_type == 'tag' }}
-    needs: rust-build
-    environment: crates-io
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: true
-
-      - name: Publish crates
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo release publish --workspace --no-confirm
-
   merge-artifacts:
     name: Merge build artifacts
 
@@ -246,7 +325,7 @@ jobs:
           pattern: amaru-*
           path: ./artifacts
 
-      - name: Prepare combined Pages directory
+      - name: Prepare combined Github Pages
         shell: bash
         run: |
           mkdir -p dist/downloads
@@ -342,7 +421,7 @@ jobs:
             </html>
           EOF
 
-      - name: Upload combined artifact for Pages
+      - name: Upload combined artifact for Github Pages
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist

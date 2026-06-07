@@ -36,6 +36,7 @@ pub mod tests;
 /// applying them to the local chain.
 pub mod stages;
 pub mod submit_api;
+pub mod version;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 

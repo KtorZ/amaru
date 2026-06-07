@@ -67,28 +67,22 @@ pub fn pad_left(mut text: String, n: usize, delimiter: &str) -> String {
     text
 }
 
-// TODO: pulled from aiken; should we have our own config utility crate?
-// https://github.com/aiken-lang/aiken/blob/main/crates/aiken-project/src/config.rs#L382C1-L393C2
-mod built_info {
-    include!(concat!(env!("OUT_DIR"), "/built.rs"));
-}
-
 pub fn node_info() -> String {
     format!(
         r#"
 Operating System: {}
 Architecture:     {}
 Version:          {}"#,
-        built_info::CFG_OS,
-        built_info::CFG_TARGET_ARCH,
+        crate::version::target_os(),
+        crate::version::target_arch(),
         node_version(true),
     )
 }
 
 pub fn node_version(include_commit_hash: bool) -> String {
-    let version = built_info::PKG_VERSION;
+    let version = crate::version::package_version();
     let suffix = if include_commit_hash {
-        format!("+{}", built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown"))
+        format!("+{}", crate::version::git_commit_hash_short().unwrap_or("unknown"))
     } else {
         "".to_string()
     };

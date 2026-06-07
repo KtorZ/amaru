@@ -15,7 +15,14 @@ BUILD_PROFILE ?= release
 DIST_DIR ?= dist
 BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
 AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
-AMARU_VERSION ?= $(shell cargo pkgid -p amaru | sed -E 's/.*[@\#]//')
+AMARU_VERSION ?= $(shell \
+	version="$$(cargo pkgid -p amaru | sed -E 's/.*[@\#]//')"; \
+	if [ -n "$(BUILT_OVERRIDE_amaru_PKG_PATCH)" ]; then \
+		printf '%s\n' "$$version" | sed -E 's/^([0-9]+\.[0-9]+)\.[0-9]+(.*)$$/\1.$(BUILT_OVERRIDE_amaru_PKG_PATCH)\2/'; \
+	else \
+		printf '%s\n' "$$version"; \
+	fi \
+)
 ARCHIVE_COMMIT = $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf '%s' unknown)
 ARCHIVE_DIRTY_SUFFIX = $(shell if [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf '%s' '+dirty'; fi)
 ARCHIVE_IDENTIFIER = $(if $(AMARU_VERSION),$(AMARU_VERSION),$(ARCHIVE_COMMIT)$(ARCHIVE_DIRTY_SUFFIX))
