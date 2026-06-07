@@ -258,7 +258,6 @@ dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
 	@printf 'Staged distribution under %s\n' "$(abspath $(DIST_DIR))"
 
 tarball: dist ## &dist Create a versioned .tar.gz archive from $(DIST_DIR)
-	@set -euo pipefail; \
 	tmp_dir="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
@@ -275,7 +274,6 @@ check-zip:
 zip: zipball
 
 zipball: dist check-zip ## &dist Create a versioned .zip archive from $(DIST_DIR)
-	@set -euo pipefail; \
 	tmp_dir="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
@@ -284,7 +282,6 @@ zipball: dist check-zip ## &dist Create a versioned .zip archive from $(DIST_DIR
 	printf 'Wrote archive %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).zip)"
 
 homebrew: ## &dist Generate a Homebrew formula from release archives
-	@set -euo pipefail; \
 	if [ -z "$(HOMEBREW_BASE_URL)" ] || [ -z "$(HOMEBREW_MACOS_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_X86_64_ARCHIVE)" ]; then \
 		echo "Error: set HOMEBREW_BASE_URL, HOMEBREW_MACOS_ARM64_ARCHIVE, HOMEBREW_LINUX_ARM64_ARCHIVE and HOMEBREW_LINUX_X86_64_ARCHIVE." >&2; \
 		exit 1; \
@@ -299,7 +296,6 @@ homebrew: ## &dist Generate a Homebrew formula from release archives
 		--output "$(HOMEBREW_FORMULA_OUTPUT)"
 
 winget: ## &dist Generate WinGet manifests from the Windows release archive
-	@set -euo pipefail; \
 	if [ -z "$(WINGET_BASE_URL)" ] || [ -z "$(WINGET_WINDOWS_X86_64_ARCHIVE)" ]; then \
 		echo "Error: set WINGET_BASE_URL and WINGET_WINDOWS_X86_64_ARCHIVE." >&2; \
 		exit 1; \
@@ -318,7 +314,6 @@ check-cargo-deb:
 	fi
 
 deb: dist check-cargo-deb ## &dist Build a .deb package from $(DIST_DIR)
-	@set -euo pipefail; \
 	if [ -z "$(AMARU_VERSION)" ]; then \
 		echo "Error: AMARU_VERSION must not be empty when building a .deb package." >&2; \
 		exit 1; \
@@ -333,7 +328,6 @@ check-cargo-generate-rpm:
 	fi
 
 rpm: dist check-cargo-generate-rpm ## &dist Build an .rpm package from $(DIST_DIR)
-	@set -euo pipefail; \
 	if [ -z "$(AMARU_VERSION)" ]; then \
 		echo "Error: AMARU_VERSION must not be empty when building an .rpm package." >&2; \
 		exit 1; \
