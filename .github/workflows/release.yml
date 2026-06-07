@@ -97,7 +97,13 @@ jobs:
             build: zigbuild
             executable: amaru
             setup: |
-              sudo apt-get install -y pkg-config musl musl-dev musl-tools
+              sudo apt-get install -y pkg-config musl musl-dev musl-tools rpm
+              if ! cargo deb --version >/dev/null 2>&1; then
+                cargo install cargo-deb
+              fi
+              if ! cargo generate-rpm --version >/dev/null 2>&1; then
+                cargo install cargo-generate-rpm
+              fi
               sudo snap install zig --classic --beta
               if ! command -v cargo-zigbuild >/dev/null 2>&1; then
                 cargo install cargo-zigbuild
@@ -110,7 +116,14 @@ jobs:
             build: zigbuild
             executable: amaru
             setup: |
-              sudo apt-get install -y pkg-config musl musl-dev musl-tools
+              sudo apt-get install -y pkg-config musl musl-dev musl-tools rpm
+              if ! cargo deb --version >/dev/null 2>&1; then
+                cargo install cargo-deb
+              fi
+              if ! cargo generate-rpm --version >/dev/null 2>&1; then
+                cargo install cargo-generate-rpm
+              fi
+
               sudo snap install zig --classic --beta
               if ! command -v cargo-zigbuild >/dev/null 2>&1; then
                 cargo install cargo-zigbuild
@@ -176,29 +189,14 @@ jobs:
           fi
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Install Linux packaging tools
-        if: ${{ needs.build-metadata.outputs.is_release == 'true' && startsWith(matrix.environments.title, 'linux-') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y rpm
-          if ! cargo deb --version >/dev/null 2>&1; then
-            cargo install cargo-deb
-          fi
-          if ! cargo generate-rpm --version >/dev/null 2>&1; then
-            cargo install cargo-generate-rpm
-          fi
-
       - name: Build Linux packages
-        if: ${{ needs.build-metadata.outputs.is_release == 'true' && startsWith(matrix.environments.title, 'linux-') }}
+        if: ${{ startsWith(matrix.environments.title, 'linux-') }}
         shell: bash
         env:
           VERSION: ${{ needs.build-metadata.outputs.version }}
           ARCHIVE_SUFFIX: ${{ matrix.environments.title }}
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
         run: |
-          set -euo pipefail
           make deb \
             ARCHIVE_ROOT_NAME="amaru-${VERSION}-${ARCHIVE_SUFFIX}" \
             BUILD_PROFILE=release \
@@ -216,7 +214,7 @@ jobs:
           path: ${{ steps.pack.outputs.path }}
 
       - uses: actions/upload-artifact@v7
-        if: ${{ needs.build-metadata.outputs.is_release == 'true' && startsWith(matrix.environments.title, 'linux-') }}
+        if: ${{ startsWith(matrix.environments.title, 'linux-') }}
         with:
           name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}-packages
           path: |
