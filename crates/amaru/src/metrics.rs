@@ -22,11 +22,9 @@ use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesTo
 use tokio::task::JoinHandle;
 use tracing::error;
 
-static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
+use crate::version;
 
-mod built_info {
-    include!(concat!(env!("OUT_DIR"), "/built.rs"));
-}
+static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
 pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     use internals::*;
@@ -76,11 +74,11 @@ fn record_build_info(provider: &SdkMeterProvider) {
     build_info.record(
         1,
         &[
-            KeyValue::new("version", built_info::PKG_VERSION),
-            KeyValue::new("revision", built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown")),
-            KeyValue::new("dirty", built_info::GIT_DIRTY.unwrap_or(false).to_string()),
-            KeyValue::new("os", built_info::CFG_OS),
-            KeyValue::new("arch", built_info::CFG_TARGET_ARCH),
+            KeyValue::new("version", version::package_version()),
+            KeyValue::new("revision", version::git_commit_hash_short().unwrap_or("unknown")),
+            KeyValue::new("dirty", version::git_dirty().unwrap_or(false).to_string()),
+            KeyValue::new("os", version::target_os()),
+            KeyValue::new("arch", version::target_arch()),
         ],
     );
 
@@ -99,7 +97,7 @@ fn record_build_info(provider: &SdkMeterProvider) {
         .with_description("Patch version number")
         .build();
 
-    let version_parts: Vec<&str> = built_info::PKG_VERSION.split('.').collect();
+    let version_parts: Vec<&str> = version::package_version().split('.').collect();
 
     if let Some(major) = version_parts.first().and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_major.record(major, &[]);

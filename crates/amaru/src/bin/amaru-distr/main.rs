@@ -18,6 +18,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use amaru::version;
 use clap::Parser;
 use clap_complete::{Shell, generate};
 
@@ -46,22 +47,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_dir(output_dir.join("share/zsh/site-functions"))?;
     create_dir(output_dir.join("share/fish/vendor_completions.d"))?;
 
-    render_man_page(output_dir.as_path(), env!("CARGO_PKG_VERSION"))?;
+    render_man_page(output_dir.as_path(), version::package_version())?;
     render_completion(
         output_dir.as_path(),
-        env!("CARGO_PKG_VERSION"),
+        version::package_version(),
         Shell::Bash,
         Path::new("share/bash-completion/completions/amaru"),
     )?;
     render_completion(
         output_dir.as_path(),
-        env!("CARGO_PKG_VERSION"),
+        version::package_version(),
         Shell::Zsh,
         Path::new("share/zsh/site-functions/_amaru"),
     )?;
     render_completion(
         output_dir.as_path(),
-        env!("CARGO_PKG_VERSION"),
+        version::package_version(),
         Shell::Fish,
         Path::new("share/fish/vendor_completions.d/amaru.fish"),
     )?;

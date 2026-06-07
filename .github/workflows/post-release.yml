@@ -1,0 +1,92 @@
+name: Post Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  finalize-release:
+    name: Finalize published release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.target_commitish }}
+
+      - name: Ensure release tag exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          TARGET_COMMITISH: ${{ github.event.release.target_commitish }}
+        run: |
+          set -euo pipefail
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${RELEASE_TAG} already exists"
+            exit 0
+          fi
+
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TARGET_COMMITISH}" --jq .sha)"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${target_sha}"
+
+      - name: Download published release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "${RELEASE_TAG}" --dir release-assets
+          ls -lh release-assets
+
+      - name: Generate Homebrew formula
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          make homebrew \
+            AMARU_VERSION="${version}" \
+            HOMEBREW_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
+            HOMEBREW_MACOS_ARM64_ARCHIVE="release-assets/amaru-${version}-macos-aarch64.tar.gz" \
+            HOMEBREW_LINUX_ARM64_ARCHIVE="release-assets/amaru-${version}-linux-aarch64.tar.gz" \
+            HOMEBREW_LINUX_X86_64_ARCHIVE="release-assets/amaru-${version}-linux-x86_64.tar.gz"
+
+      - name: Generate winget manifests
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          make winget \
+            AMARU_VERSION="${version}" \
+            WINGET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
+            WINGET_WINDOWS_X86_64_ARCHIVE="release-assets/amaru-${version}-windows-x86_64.zip" \
+            WINGET_RELEASE_DATE="$(printf '%s' "${RELEASE_PUBLISHED_AT}" | cut -dT -f1)"
+
+      - name: Create packaging update PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: codex/release-packaging-${{ github.event.release.tag_name }}
+          delete-branch: true
+          commit-message: "chore: update release packaging for ${{ github.event.release.tag_name }}"
+          title: "chore: update release packaging for ${{ github.event.release.tag_name }}"
+          body: |
+            Updates packaging metadata generated from the published release `${{ github.event.release.tag_name }}`.
+
+            This PR was created automatically by the `release-published` workflow.
+          add-paths: |
+            packaging/homebrew/**
+            packaging/winget/**

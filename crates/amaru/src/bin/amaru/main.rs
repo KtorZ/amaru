@@ -12,32 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::LazyLock;
-
 use amaru::{
     observability::{Color, setup_observability},
     panic::panic_handler,
+    version,
 };
 use tracing::info;
 
 mod cli;
 mod cmd;
 mod pid;
-
-mod built_info {
-    include!(concat!(env!("OUT_DIR"), "/built.rs"));
-}
-
-/// Lazily initialized version string including git commit SHA.
-/// This provides a &'static str without manually leaking memory.
-static VERSION: LazyLock<String> = LazyLock::new(|| {
-    let version = built_info::PKG_VERSION;
-    match (built_info::GIT_COMMIT_HASH_SHORT, built_info::GIT_DIRTY) {
-        (Some(sha), Some(true)) => format!("{version} ({sha}+dirty)"),
-        (Some(sha), _) => format!("{version} ({sha})"),
-        _ => version.to_string(),
-    }
-});
 
 // TODO(rkuhn): properly measure and design the Tokio runtime setup we need.
 // (probably one runtime for network with 1-2 threads, one for CPU-bound tasks according to parallelism,
@@ -47,7 +31,7 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
-    let args = cli::parse(VERSION.as_str())?;
+    let args = cli::parse(version::display_version())?;
 
     // Skip observability setup for dump-traces-schema to avoid polluting stderr
     let skip_logging = args.quiet || matches!(args.command, cli::Command::DumpTracesSchema(_));

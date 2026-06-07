@@ -30,6 +30,7 @@ fn main() {
     // This is necessary for the tests to run correctly, as they rely on this variable to be set at build time
     let network = env::var("AMARU_NETWORK").unwrap_or_else(|_| "preprod".into());
     println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
+    println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_PATCH");
     println!("cargo:rustc-env=AMARU_NETWORK={}", network);
 }
 
