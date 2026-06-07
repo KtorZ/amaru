@@ -43,29 +43,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_dir = args.output_dir;
 
     create_dir(output_dir.join("share/man/man1"))?;
-    create_dir(output_dir.join("share/bash-completion/completions"))?;
-    create_dir(output_dir.join("share/zsh/site-functions"))?;
-    create_dir(output_dir.join("share/fish/vendor_completions.d"))?;
 
     render_man_page(output_dir.as_path(), version::package_version())?;
-    render_completion(
-        output_dir.as_path(),
-        version::package_version(),
-        Shell::Bash,
-        Path::new("share/bash-completion/completions/amaru"),
-    )?;
-    render_completion(
-        output_dir.as_path(),
-        version::package_version(),
-        Shell::Zsh,
-        Path::new("share/zsh/site-functions/_amaru"),
-    )?;
-    render_completion(
-        output_dir.as_path(),
-        version::package_version(),
-        Shell::Fish,
-        Path::new("share/fish/vendor_completions.d/amaru.fish"),
-    )?;
+
+    match version::target_os() {
+        "windows" => render_windows_completion(output_dir.as_path(), version::package_version())?,
+        _ => render_unix_completions(output_dir.as_path(), version::package_version())?,
+    }
 
     Ok(())
 }
@@ -94,4 +78,36 @@ fn render_completion(
     let mut file = File::create(path)?;
     generate(shell, &mut command, "amaru", &mut file);
     Ok(())
+}
+
+fn render_unix_completions(output_dir: &Path, version: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+    create_dir(output_dir.join("share/bash-completion/completions"))?;
+    create_dir(output_dir.join("share/zsh/site-functions"))?;
+    create_dir(output_dir.join("share/fish/vendor_completions.d"))?;
+
+    render_completion(
+        output_dir,
+        version,
+        Shell::Bash,
+        Path::new("share/bash-completion/completions/amaru"),
+    )?;
+    render_completion(output_dir, version, Shell::Zsh, Path::new("share/zsh/site-functions/_amaru"))?;
+    render_completion(
+        output_dir,
+        version,
+        Shell::Fish,
+        Path::new("share/fish/vendor_completions.d/amaru.fish"),
+    )?;
+
+    Ok(())
+}
+
+fn render_windows_completion(output_dir: &Path, version: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+    create_dir(output_dir.join("share/powershell/completions"))?;
+    render_completion(
+        output_dir,
+        version,
+        Shell::PowerShell,
+        Path::new("share/powershell/completions/amaru.ps1"),
+    )
 }
