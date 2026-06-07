@@ -12,6 +12,14 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
+DIST_DIR ?= dist
+BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
+AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
+AMARU_VERSION ?= $(shell cargo pkgid -p amaru | sed -E 's/.*[@\#]//')
+ARCHIVE_COMMIT = $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf '%s' unknown)
+ARCHIVE_DIRTY_SUFFIX = $(shell if [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf '%s' '+dirty'; fi)
+ARCHIVE_IDENTIFIER = $(if $(AMARU_VERSION),$(AMARU_VERSION),$(ARCHIVE_COMMIT)$(ARCHIVE_DIRTY_SUFFIX))
+ARCHIVE_ROOT_NAME ?= amaru$(if $(ARCHIVE_IDENTIFIER),-$(ARCHIVE_IDENTIFIER),)
 TRACES_PORT ?= 8000
 TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
 TRACE_COMPARE_LOG ?= trace-compare.log
@@ -25,7 +33,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas
+.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -36,6 +44,9 @@ help:
 	@echo ""
 	@echo "\033[1;4mDev & Testing:\033[00m"
 	@grep -E '^[a-z]+[^:]+:.*## &test '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&test//')\n"; done
+	@echo ""
+	@echo "\033[1;4mPackaging & Distribution:\033[00m"
+	@grep -E '^[a-z-]+[^:]+:.*## &dist '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&dist//')\n"; done
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
@@ -194,3 +205,45 @@ coverage-lconv: ## &test Run test coverage for CI to upload to Codecov
 		--workspace \
 		--lcov \
 		--output-path lcov.info
+
+clean-dist:
+	@for path in "$(DIST_DIR)/bin" "$(DIST_DIR)/share"; do \
+		if [ -e "$$path" ]; then \
+			rm -rf "$$path"; \
+		fi; \
+	done
+
+cli-assets: clean-dist  ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)
+	@printf 'Generating command-line assets under %s\n' "$(abspath $(DIST_DIR))"
+	@cargo -q run --profile $(BUILD_PROFILE) --locked --bin amaru-distr -- --output-dir "$(DIST_DIR)"
+	@if command -v tree >/dev/null 2>&1; then \
+		tree -h "$(DIST_DIR)"; \
+	else \
+		find "$(DIST_DIR)"; \
+	fi
+
+dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
+	@printf 'Adding amaru binary and metadata to %s\n' "$(abspath $(DIST_DIR))"
+	@mkdir -p "$(DIST_DIR)/bin"
+	@mkdir -p "$(DIST_DIR)/share/doc/amaru"
+	@if [ ! -f "$(AMARU_BIN)" ]; then \
+		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
+		exit 1; \
+	fi
+	@cp "$(AMARU_BIN)" "$(DIST_DIR)/bin/amaru"
+	@chmod +x "$(DIST_DIR)/bin/amaru"
+	@cp LICENSE README.md CHANGELOG.md "$(DIST_DIR)/share/doc/amaru/"
+	@if command -v tree >/dev/null 2>&1; then \
+		tree -h "$(DIST_DIR)"; \
+	else \
+		find "$(DIST_DIR)"; \
+	fi
+
+tarball: dist ## &dist Create a versioned .tar.gz archive from $(DIST_DIR)
+	@set -euo pipefail; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
+	cp -R "$(DIST_DIR)"/. "$$tmp_dir/$(ARCHIVE_ROOT_NAME)/"; \
+	LC_ALL=C tar -C "$$tmp_dir" -czf "$(ARCHIVE_ROOT_NAME).tar.gz" "$(ARCHIVE_ROOT_NAME)"; \
+	printf '%s\n' "$(abspath $(ARCHIVE_ROOT_NAME).tar.gz)"

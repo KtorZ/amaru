@@ -60,3 +60,6 @@ scripts/relay*/run/**
 
 /.opencode/
 data/*/epoch-snapshots/
+
+# Packaging and distribution target dir
+dist/
