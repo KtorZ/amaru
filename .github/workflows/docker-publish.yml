@@ -183,6 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           tag_args=()
+          source_args=()
 
           while IFS= read -r tag; do
             if [[ -n "$tag" ]]; then
@@ -190,9 +191,13 @@ jobs:
             fi
           done <<< "$TAGS"
 
+          for digest in *; do
+            source_args+=("${IMAGE_NAME}@sha256:${digest}")
+          done
+
           docker buildx imagetools create \
             "${tag_args[@]}" \
-            $(printf '%s@sha256:%s ' "$IMAGE_NAME" *)
+            "${source_args[@]}"
 
       - name: Inspect image
         shell: bash
