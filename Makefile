@@ -16,6 +16,7 @@ DIST_DIR ?= dist
 BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
 AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
 DIST_BIN_NAME ?= $(notdir $(AMARU_BIN))
+PACKAGE_TARGET ?=
 AMARU_VERSION ?= $(shell \
 	version="$$(cargo pkgid -p amaru | sed -E 's/.*[@\#]//')"; \
 	if [ -n "$(BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH)" ]; then \
@@ -318,7 +319,7 @@ deb: dist check-cargo-deb ## &dist Build a .deb package from $(DIST_DIR)
 		echo "Error: AMARU_VERSION must not be empty when building a .deb package." >&2; \
 		exit 1; \
 	fi; \
-	cargo deb --no-build -p amaru --deb-version "$(AMARU_VERSION)" --output "$(ARCHIVE_ROOT_NAME).deb"; \
+	cargo deb --no-build -p amaru $(if $(PACKAGE_TARGET),--target $(PACKAGE_TARGET),) --deb-version "$(AMARU_VERSION)" --output "$(ARCHIVE_ROOT_NAME).deb"; \
 	printf 'Wrote package %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).deb)"
 
 check-cargo-generate-rpm:
@@ -332,5 +333,5 @@ rpm: dist check-cargo-generate-rpm ## &dist Build an .rpm package from $(DIST_DI
 		echo "Error: AMARU_VERSION must not be empty when building an .rpm package." >&2; \
 		exit 1; \
 	fi; \
-	cargo generate-rpm -p amaru -o "$(ARCHIVE_ROOT_NAME).rpm" --set-metadata='version = "$(AMARU_VERSION)"'; \
+	cargo generate-rpm -p crates/amaru $(if $(PACKAGE_TARGET),--target $(PACKAGE_TARGET),) -o "$(ARCHIVE_ROOT_NAME).rpm" --set-metadata='version = "$(AMARU_VERSION)"'; \
 	printf 'Wrote package %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).rpm)"
