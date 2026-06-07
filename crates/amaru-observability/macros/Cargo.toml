@@ -1,6 +1,6 @@
 [package]
 name = "amaru-observability-macros"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Procedural macros for observability instrumentation"
 license.workspace = true

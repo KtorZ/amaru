@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-mithril"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Mithril snapshot download and verification for Amaru"
 license.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "amaru-mempool"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Transaction mempool for the Amaru Cardano node"
 license.workspace = true

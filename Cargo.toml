@@ -1,5 +1,4 @@
 [workspace.package]
-version = "0.1.2"
 edition = "2024"
 description = "A Cardano blockchain node implementation"
 license = "Apache-2.0"
@@ -100,7 +99,7 @@ typetag = "0.2.21"
 zeroize = "1.8.2"
 
 # Internal dependencies
-amaru = { path = "crates/amaru", version = "0.1.2" }
+amaru = { path = "crates/amaru" }
 amaru-consensus = { path = "crates/amaru-consensus", version = "0.1.2" }
 amaru-fixture-builder = { path = "crates/amaru-fixture-builder", version = "0.1.2" }
 amaru-iter-borrow = { path = "crates/amaru-iter-borrow", version = "0.1.2" }

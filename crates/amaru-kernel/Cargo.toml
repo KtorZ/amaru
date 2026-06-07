@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-kernel"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Core Cardano types, primitives, and domain logic for the Amaru Cardano node"
 license.workspace = true

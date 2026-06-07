@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-iter-borrow"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Iterator adaptor supporting mutable borrowing of elements"
 license.workspace = true

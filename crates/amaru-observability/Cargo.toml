@@ -1,6 +1,6 @@
 [package]
 name = "amaru-observability"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Observability instrumentation and structured event tracking for the Amaru Cardano node"
 license.workspace = true

@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-protocols"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Cardano network mini-protocol implementations for the Amaru Cardano node"
 license.workspace = true

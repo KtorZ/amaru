@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-ledger"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Ledger engine for the Amaru Cardano node"
 license.workspace = true

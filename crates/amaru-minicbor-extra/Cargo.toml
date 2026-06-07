@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru-minicbor-extra"
-version.workspace = true
+version = "0.1.2"
 edition.workspace = true
 description = "Extra CBOR encoding utilities built on top of minicbor"
 license.workspace = true
