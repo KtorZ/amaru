@@ -1,0 +1,200 @@
+name: Docker Publish
+
+on:
+  workflow_call:
+    inputs:
+      artifact_source:
+        required: true
+        type: string
+      artifact_version:
+        required: true
+        type: string
+      release_tag:
+        required: false
+        type: string
+        default: ""
+      checkout_ref:
+        required: true
+        type: string
+      image_name:
+        required: true
+        type: string
+      tag_latest:
+        required: false
+        type: boolean
+        default: false
+      tag_version:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-build:
+    name: Build docker image (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            artifact_suffix: x86_64
+          - arch: arm64
+            artifact_suffix: aarch64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Prepare dist directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist release-assets
+          mkdir -p dist release-assets
+
+      - name: Download workflow artifact
+        if: ${{ inputs.artifact_source == 'workflow-artifact' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: amaru-${{ inputs.artifact_version }}-linux-${{ matrix.artifact_suffix }}
+          path: dist
+          merge-multiple: true
+
+      - name: Download release asset
+        if: ${{ inputs.artifact_source == 'release-asset' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          archive="amaru-${{ inputs.artifact_version }}-linux-${{ matrix.artifact_suffix }}.tar.gz"
+          gh release download "${{ inputs.release_tag }}" --dir release-assets --pattern "$archive"
+          tar -xzf "release-assets/$archive" -C dist --strip-components=1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          cache-binary: false
+
+      - name: Login Docker Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/Dockerfile.workflow
+          platforms: linux/${{ matrix.arch }}
+          cache-from: type=registry,ref=${{ inputs.image_name }}:latest
+          cache-to: type=inline
+          outputs: type=image,name=${{ inputs.image_name }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-publish:
+    name: Publish multi-arch docker image
+    needs: docker-build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: docker-digests-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          cache-binary: false
+
+      - name: Login Docker Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          TAG_LATEST: ${{ inputs.tag_latest }}
+          TAG_VERSION: ${{ inputs.tag_version }}
+        run: |
+          set -euo pipefail
+          tags=()
+
+          if [[ "$TAG_LATEST" == "true" ]]; then
+            tags+=("$IMAGE_NAME:latest")
+          fi
+
+          if [[ -n "$TAG_VERSION" ]]; then
+            tags+=("$IMAGE_NAME:$TAG_VERSION")
+          fi
+
+          if [[ ${#tags[@]} -eq 0 ]]; then
+            echo "no docker tags configured" >&2
+            exit 1
+          fi
+
+          {
+            echo 'tags<<EOF'
+            printf '%s\n' "${tags[@]}"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+          echo "primary_tag=${tags[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          tag_args=()
+
+          while IFS= read -r tag; do
+            if [[ -n "$tag" ]]; then
+              tag_args+=(-t "$tag")
+            fi
+          done <<< "$TAGS"
+
+          docker buildx imagetools create \
+            "${tag_args[@]}" \
+            $(printf '%s@sha256:%s ' "$IMAGE_NAME" *)
+
+      - name: Inspect image
+        shell: bash
+        run: |
+          docker buildx imagetools inspect "${{ steps.tags.outputs.primary_tag }}"
