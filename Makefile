@@ -15,10 +15,11 @@ BUILD_PROFILE ?= release
 DIST_DIR ?= dist
 BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
 AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
+DIST_BIN_NAME ?= $(notdir $(AMARU_BIN))
 AMARU_VERSION ?= $(shell \
 	version="$$(cargo pkgid -p amaru | sed -E 's/.*[@\#]//')"; \
-	if [ -n "$(BUILT_OVERRIDE_amaru_PKG_PATCH)" ]; then \
-		printf '%s\n' "$$version" | sed -E 's/^([0-9]+\.[0-9]+)\.[0-9]+(.*)$$/\1.$(BUILT_OVERRIDE_amaru_PKG_PATCH)\2/'; \
+	if [ -n "$(BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH)" ]; then \
+		printf '%s\n' "$$version" | sed -E 's/^([0-9]+\.[0-9]+)\.[0-9]+(.*)$$/\1.$(BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH)\2/'; \
 	else \
 		printf '%s\n' "$$version"; \
 	fi \
@@ -27,6 +28,14 @@ ARCHIVE_COMMIT = $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf '%s
 ARCHIVE_DIRTY_SUFFIX = $(shell if [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf '%s' '+dirty'; fi)
 ARCHIVE_IDENTIFIER = $(if $(AMARU_VERSION),$(AMARU_VERSION),$(ARCHIVE_COMMIT)$(ARCHIVE_DIRTY_SUFFIX))
 ARCHIVE_ROOT_NAME ?= amaru$(if $(ARCHIVE_IDENTIFIER),-$(ARCHIVE_IDENTIFIER),)
+HOMEBREW_BASE_URL ?= https://github.com/pragma-org/amaru/releases/download/$(AMARU_VERSION)
+HOMEBREW_MACOS_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-macos-aarch64.tar.gz
+HOMEBREW_LINUX_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-aarch64.tar.gz
+HOMEBREW_LINUX_X86_64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-x86_64.tar.gz
+HOMEBREW_FORMULA_OUTPUT ?= packaging/homebrew/amaru.rb
+WINGET_BASE_URL ?=
+WINGET_WINDOWS_X86_64_ARCHIVE ?=
+WINGET_RELEASE_DATE ?= $(shell date -u +%F)
 TRACES_PORT ?= 8000
 TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
 TRACE_COMPARE_LOG ?= trace-compare.log
@@ -40,23 +49,23 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball
+.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew winget deb rpm check-zip check-cargo-deb check-cargo-generate-rpm
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
-	@grep -E '^[a-z]+[^:]+:.*## &start '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&start//')\n"; done
+	@grep -E '^[a-z]+[^:]+:.*## &start '  Makefile | while read -r l; do printf "  \033[1;32m%s\033[00m:%s\n" "$$(echo $$l | cut -f 1 -d':')" "$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&start//')"; done
 	@echo ""
 	@echo "\033[1;4mBuilding & Running:\033[00m"
-	@grep -E '^[a-z]+[^:]+:.*## &build '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&build//')\n"; done
+	@grep -E '^[a-z]+[^:]+:.*## &build '  Makefile | while read -r l; do printf "  \033[1;32m%s\033[00m:%s\n" "$$(echo $$l | cut -f 1 -d':')" "$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&build//')"; done
 	@echo ""
 	@echo "\033[1;4mDev & Testing:\033[00m"
-	@grep -E '^[a-z]+[^:]+:.*## &test '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&test//')\n"; done
+	@grep -E '^[a-z]+[^:]+:.*## &test '  Makefile | while read -r l; do printf "  \033[1;32m%s\033[00m:%s\n" "$$(echo $$l | cut -f 1 -d':')" "$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&test//')"; done
 	@echo ""
 	@echo "\033[1;4mPackaging & Distribution:\033[00m"
-	@grep -E '^[a-z-]+[^:]+:.*## &dist '  Makefile | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&dist//')\n"; done
+	@grep -E '^[a-z-]+[^:]+:.*## &dist '  Makefile | while read -r l; do printf "  \033[1;32m%s\033[00m:%s\n" "$$(echo $$l | cut -f 1 -d':')" "$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&dist//')"; done
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
-	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
+	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m%s\033[00m=%s\n" "$$(echo $$l | cut -f 1 -d'=')" "$$(echo $$l | cut -f 2- -d'=')"; done
 
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
@@ -228,6 +237,7 @@ cli-assets: clean-dist  ## &dist Generate clap-derived man page and shell comple
 	else \
 		find "$(DIST_DIR)"; \
 	fi
+	@printf 'Generated command-line assets under %s\n' "$(abspath $(DIST_DIR))"
 
 dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
 	@printf 'Adding amaru binary and metadata to %s\n' "$(abspath $(DIST_DIR))"
@@ -237,14 +247,15 @@ dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
 		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
 		exit 1; \
 	fi
-	@cp "$(AMARU_BIN)" "$(DIST_DIR)/bin/amaru"
-	@chmod +x "$(DIST_DIR)/bin/amaru"
+	@cp "$(AMARU_BIN)" "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
+	@chmod +x "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
 	@cp LICENSE README.md CHANGELOG.md "$(DIST_DIR)/share/doc/amaru/"
 	@if command -v tree >/dev/null 2>&1; then \
 		tree -h "$(DIST_DIR)"; \
 	else \
 		find "$(DIST_DIR)"; \
 	fi
+	@printf 'Staged distribution under %s\n' "$(abspath $(DIST_DIR))"
 
 tarball: dist ## &dist Create a versioned .tar.gz archive from $(DIST_DIR)
 	@set -euo pipefail; \
@@ -253,4 +264,79 @@ tarball: dist ## &dist Create a versioned .tar.gz archive from $(DIST_DIR)
 	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
 	cp -R "$(DIST_DIR)"/. "$$tmp_dir/$(ARCHIVE_ROOT_NAME)/"; \
 	LC_ALL=C tar -C "$$tmp_dir" -czf "$(ARCHIVE_ROOT_NAME).tar.gz" "$(ARCHIVE_ROOT_NAME)"; \
-	printf '%s\n' "$(abspath $(ARCHIVE_ROOT_NAME).tar.gz)"
+	printf 'Wrote archive %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).tar.gz)"
+
+check-zip:
+	@if ! command -v zip >/dev/null 2>&1; then \
+		echo "Error: zip is not installed; install it first." >&2; \
+		exit 1; \
+	fi
+
+zip: zipball
+
+zipball: dist check-zip ## &dist Create a versioned .zip archive from $(DIST_DIR)
+	@set -euo pipefail; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
+	cp -R "$(DIST_DIR)"/. "$$tmp_dir/$(ARCHIVE_ROOT_NAME)/"; \
+	( cd "$$tmp_dir" && zip -qr "$(abspath $(ARCHIVE_ROOT_NAME).zip)" "$(ARCHIVE_ROOT_NAME)" ); \
+	printf 'Wrote archive %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).zip)"
+
+homebrew: ## &dist Generate a Homebrew formula from release archives
+	@set -euo pipefail; \
+	if [ -z "$(HOMEBREW_BASE_URL)" ] || [ -z "$(HOMEBREW_MACOS_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_X86_64_ARCHIVE)" ]; then \
+		echo "Error: set HOMEBREW_BASE_URL, HOMEBREW_MACOS_ARM64_ARCHIVE, HOMEBREW_LINUX_ARM64_ARCHIVE and HOMEBREW_LINUX_X86_64_ARCHIVE." >&2; \
+		exit 1; \
+	fi; \
+	chmod +x scripts/generate-homebrew-formula; \
+	./scripts/generate-homebrew-formula \
+		--version "$(AMARU_VERSION)" \
+		--base-url "$(HOMEBREW_BASE_URL)" \
+		--macos-arm64-archive "$(HOMEBREW_MACOS_ARM64_ARCHIVE)" \
+		--linux-arm64-archive "$(HOMEBREW_LINUX_ARM64_ARCHIVE)" \
+		--linux-x86_64-archive "$(HOMEBREW_LINUX_X86_64_ARCHIVE)" \
+		--output "$(HOMEBREW_FORMULA_OUTPUT)"
+
+winget: ## &dist Generate WinGet manifests from the Windows release archive
+	@set -euo pipefail; \
+	if [ -z "$(WINGET_BASE_URL)" ] || [ -z "$(WINGET_WINDOWS_X86_64_ARCHIVE)" ]; then \
+		echo "Error: set WINGET_BASE_URL and WINGET_WINDOWS_X86_64_ARCHIVE." >&2; \
+		exit 1; \
+	fi; \
+	chmod +x scripts/generate-winget-manifests; \
+	./scripts/generate-winget-manifests \
+		--version "$(AMARU_VERSION)" \
+		--base-url "$(WINGET_BASE_URL)" \
+		--windows-x86_64-archive "$(WINGET_WINDOWS_X86_64_ARCHIVE)" \
+		--release-date "$(WINGET_RELEASE_DATE)"
+
+check-cargo-deb:
+	@if ! cargo deb --version >/dev/null 2>&1; then \
+		echo "Error: cargo-deb is not installed; run: cargo install cargo-deb" >&2; \
+		exit 1; \
+	fi
+
+deb: dist check-cargo-deb ## &dist Build a .deb package from $(DIST_DIR)
+	@set -euo pipefail; \
+	if [ -z "$(AMARU_VERSION)" ]; then \
+		echo "Error: AMARU_VERSION must not be empty when building a .deb package." >&2; \
+		exit 1; \
+	fi; \
+	cargo deb --no-build -p amaru --deb-version "$(AMARU_VERSION)" --output "$(ARCHIVE_ROOT_NAME).deb"; \
+	printf 'Wrote package %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).deb)"
+
+check-cargo-generate-rpm:
+	@if ! cargo generate-rpm --version >/dev/null 2>&1; then \
+		echo "Error: cargo-generate-rpm is not installed; run: cargo install cargo-generate-rpm" >&2; \
+		exit 1; \
+	fi
+
+rpm: dist check-cargo-generate-rpm ## &dist Build an .rpm package from $(DIST_DIR)
+	@set -euo pipefail; \
+	if [ -z "$(AMARU_VERSION)" ]; then \
+		echo "Error: AMARU_VERSION must not be empty when building an .rpm package." >&2; \
+		exit 1; \
+	fi; \
+	cargo generate-rpm -p amaru -o "$(ARCHIVE_ROOT_NAME).rpm" --set-metadata='version = "$(AMARU_VERSION)"'; \
+	printf 'Wrote package %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).rpm)"
