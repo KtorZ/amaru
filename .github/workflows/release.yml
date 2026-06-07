@@ -201,11 +201,13 @@ jobs:
             ARCHIVE_ROOT_NAME="amaru-${VERSION}-${ARCHIVE_SUFFIX}" \
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/amaru' \
+            PACKAGE_TARGET='${{ matrix.environments.target }}' \
             DIST_DIR='dist'
           make rpm \
             ARCHIVE_ROOT_NAME="amaru-${VERSION}-${ARCHIVE_SUFFIX}" \
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/amaru' \
+            PACKAGE_TARGET='${{ matrix.environments.target }}' \
             DIST_DIR='dist'
 
       - uses: actions/upload-artifact@v7
