@@ -15,12 +15,12 @@
 use std::sync::LazyLock;
 
 use amaru::{
-    observability::{Color, ObservabilityHints, setup_observability},
+    observability::{Color, setup_observability},
     panic::panic_handler,
 };
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use tracing::info;
 
+mod cli;
 mod cmd;
 mod pid;
 
@@ -39,96 +39,6 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
     }
 });
 
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Bootstrap the node with needed data.
-    ///
-    /// This command simplifies the process of bootstrapping an Amaru node for any given well-known network:
-    ///
-    ///   - mainnet
-    ///   - preprod
-    ///   - preview
-    ///
-    /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
-    #[clap(verbatim_doc_comment)]
-    Bootstrap(cmd::bootstrap::Args),
-
-    /// Dump the content of the chain database for troubleshooting purposes.
-    ///
-    /// This command dumps the _whole_ content of the chain database in a human-readable format:
-    ///  - Headers (hash + hex-encoded body)
-    ///  - Parent-child relationships between headers
-    ///  - Nonces
-    ///  - Blocks
-    ///  - Best chain anchor, tip and length
-    ///
-    DumpChainDB(cmd::dump_chain_db::Args),
-
-    /// Remove the validation status of the given blocks from the chain database.
-    RemoveValidationStatus(cmd::remove_validation_status::Args),
-
-    /// Remove the given chain fragment from the chain database.
-    RemoveChain(cmd::remove_chain::Args),
-
-    /// Dump all registered trace schemas as JSON Schema.
-    ///
-    /// This command outputs all registered trace schemas in JSON Schema format.
-    /// Useful for documentation, tooling, and validation.
-    #[command(name = "dump-traces-schema")]
-    DumpTracesSchema(cmd::dump_schemas::Args),
-
-    /// Fetch specified headers
-    FetchChainHeaders(cmd::fetch_chain_headers::Args),
-
-    /// Create the three consecutive epoch snapshots needed for bootstrap.
-    CreateSnapshots(cmd::create_snapshots::Args),
-
-    /// Migrate the chain database to the current version.
-    ///
-    /// This command is only relevant when one upgrades Amaru to a newer version that
-    /// requires changes in the database format.
-    MigrateChainDB(cmd::migrate_chain_db::Args),
-
-    /// Reset the ledger database to the beginning of a specific epoch
-    ResetToEpoch(cmd::reset_to_epoch::Args),
-
-    /// Run the node in all its glory.
-    #[command(alias = "daemon")]
-    Run(cmd::run::Args),
-}
-
-impl ObservabilityHints for Command {
-    fn listen_address(&self) -> Option<&str> {
-        #[allow(clippy::wildcard_enum_match_arm)]
-        match self {
-            Command::Run(args) => Some(args.listen_address()),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Parser)]
-#[clap(name = "Amaru")]
-#[clap(bin_name = "amaru")]
-#[clap(author, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-
-    #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
-    with_open_telemetry: bool,
-
-    #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
-    with_json_traces: bool,
-
-    #[clap(long, action, env("AMARU_COLOR"))]
-    color: Option<Color>,
-
-    /// Do not initialize tracing library
-    #[arg(short, long)]
-    quiet: bool,
-}
-
 // TODO(rkuhn): properly measure and design the Tokio runtime setup we need.
 // (probably one runtime for network with 1-2 threads, one for CPU-bound tasks according to parallelism,
 // one for running the consensus pipeline incl. Store access with 2+ threads)
@@ -137,11 +47,10 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
-    let matches = <Cli as CommandFactory>::command().version(VERSION.as_str()).get_matches();
-    let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
+    let args = cli::parse(VERSION.as_str())?;
 
     // Skip observability setup for dump-traces-schema to avoid polluting stderr
-    let skip_logging = args.quiet || matches!(args.command, Command::DumpTracesSchema(_));
+    let skip_logging = args.quiet || matches!(args.command, cli::Command::DumpTracesSchema(_));
 
     let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
@@ -162,16 +71,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let result = match args.command {
-        Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
-        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
-        Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
-        Command::CreateSnapshots(args) => cmd::create_snapshots::run(args).await,
-        Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
-        Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
-        Command::RemoveChain(args) => cmd::remove_chain::run(args).await,
-        Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
-        Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
-        Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,
+        cli::Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
+        cli::Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
+        cli::Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
+        cli::Command::CreateSnapshots(args) => cmd::create_snapshots::run(args).await,
+        cli::Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
+        cli::Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
+        cli::Command::RemoveChain(args) => cmd::remove_chain::run(args).await,
+        cli::Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
+        cli::Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
+        cli::Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
