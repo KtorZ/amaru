@@ -32,7 +32,7 @@ base_url=""
 macos_arm64_archive=""
 linux_arm64_archive=""
 linux_x86_64_archive=""
-output="packaging/homebrew/amaru.rb"
+output="Formula/amaru.rb"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

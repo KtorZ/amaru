@@ -108,6 +108,20 @@ jobs:
             HOMEBREW_LINUX_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-linux-aarch64.tar.gz" \
             HOMEBREW_LINUX_X86_64_ARCHIVE="release-assets/amaru-${VERSION}-linux-x86_64.tar.gz"
 
+      - name: Generate Nix flake
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          make nix-flake \
+            AMARU_VERSION="${VERSION}" \
+            NIX_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}" \
+            NIX_MACOS_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-macos-aarch64.tar.gz" \
+            NIX_LINUX_ARM64_ARCHIVE="release-assets/amaru-${VERSION}-linux-aarch64.tar.gz" \
+            NIX_LINUX_X86_64_ARCHIVE="release-assets/amaru-${VERSION}-linux-x86_64.tar.gz"
+
       - name: Generate winget manifests
         shell: bash
         env:
@@ -135,7 +149,8 @@ jobs:
 
             This PR was created automatically by the `release-published` workflow.
           add-paths: |
-            packaging/homebrew/**
+            Formula/**
+            flake.nix
             packaging/winget/**
 
   docker-release:
