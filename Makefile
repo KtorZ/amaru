@@ -33,7 +33,12 @@ HOMEBREW_BASE_URL ?= https://github.com/pragma-org/amaru/releases/download/$(AMA
 HOMEBREW_MACOS_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-macos-aarch64.tar.gz
 HOMEBREW_LINUX_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-aarch64.tar.gz
 HOMEBREW_LINUX_X86_64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-x86_64.tar.gz
-HOMEBREW_FORMULA_OUTPUT ?= packaging/homebrew/amaru.rb
+HOMEBREW_FORMULA_OUTPUT ?= Formula/amaru.rb
+NIX_BASE_URL ?= https://github.com/pragma-org/amaru/releases/download/v$(AMARU_VERSION)
+NIX_MACOS_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-macos-aarch64.tar.gz
+NIX_LINUX_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-aarch64.tar.gz
+NIX_LINUX_X86_64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-x86_64.tar.gz
+NIX_FLAKE_OUTPUT ?= flake.nix
 WINGET_BASE_URL ?=
 WINGET_WINDOWS_X86_64_ARCHIVE ?=
 WINGET_RELEASE_DATE ?= $(shell date -u +%F)
@@ -50,7 +55,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew winget deb rpm check-zip check-cargo-deb check-cargo-generate-rpm
+.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm check-zip check-cargo-deb check-cargo-generate-rpm
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -295,6 +300,20 @@ homebrew: ## &dist Generate a Homebrew formula from release archives
 		--linux-arm64-archive "$(HOMEBREW_LINUX_ARM64_ARCHIVE)" \
 		--linux-x86_64-archive "$(HOMEBREW_LINUX_X86_64_ARCHIVE)" \
 		--output "$(HOMEBREW_FORMULA_OUTPUT)"
+
+nix-flake: ## &dist Generate a Nix flake from release archives
+	if [ -z "$(NIX_BASE_URL)" ] || [ -z "$(NIX_MACOS_ARM64_ARCHIVE)" ] || [ -z "$(NIX_LINUX_ARM64_ARCHIVE)" ] || [ -z "$(NIX_LINUX_X86_64_ARCHIVE)" ]; then \
+		echo "Error: set NIX_BASE_URL, NIX_MACOS_ARM64_ARCHIVE, NIX_LINUX_ARM64_ARCHIVE and NIX_LINUX_X86_64_ARCHIVE." >&2; \
+		exit 1; \
+	fi; \
+	chmod +x scripts/generate-nix-flake; \
+	./scripts/generate-nix-flake \
+		--version "$(AMARU_VERSION)" \
+		--base-url "$(NIX_BASE_URL)" \
+		--macos-arm64-archive "$(NIX_MACOS_ARM64_ARCHIVE)" \
+		--linux-arm64-archive "$(NIX_LINUX_ARM64_ARCHIVE)" \
+		--linux-x86_64-archive "$(NIX_LINUX_X86_64_ARCHIVE)" \
+		--output "$(NIX_FLAKE_OUTPUT)"
 
 winget: ## &dist Generate WinGet manifests from the Windows release archive
 	if [ -z "$(WINGET_BASE_URL)" ] || [ -z "$(WINGET_WINDOWS_X86_64_ARCHIVE)" ]; then \
