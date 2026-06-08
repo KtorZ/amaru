@@ -8,7 +8,7 @@ Usage:
   ./scripts/generate-winget-manifests \
     --version <version> \
     --base-url <base-url> \
-    --windows-x86_64-archive <path> \
+    --windows-x86_64-installer <path> \
     [--release-date <yyyy-mm-dd>] \
     [--output-dir <path>] \
     [--package-identifier <identifier>] \
@@ -20,7 +20,7 @@ Example:
   ./scripts/generate-winget-manifests \
     --version 10.10.20260607 \
     --base-url https://github.com/pragma-org/amaru/releases/download/v10.10.20260607 \
-    --windows-x86_64-archive release-assets/amaru-10.10.20260607-windows-x86_64.zip
+    --windows-x86_64-installer release-assets/amaru-10.10.20260607-windows-x86_64.msi
 EOF
 }
 
@@ -44,7 +44,7 @@ default_output_dir_for() {
 
 version=""
 base_url=""
-windows_x86_64_archive=""
+windows_x86_64_installer=""
 release_date="$(date -u +%Y-%m-%d)"
 output_dir=""
 package_identifier="PRAGMA.Amaru"
@@ -68,8 +68,8 @@ while [[ $# -gt 0 ]]; do
       base_url="${2:?missing value for --base-url}"
       shift 2
       ;;
-    --windows-x86_64-archive)
-      windows_x86_64_archive="${2:?missing value for --windows-x86_64-archive}"
+    --windows-x86_64-installer)
+      windows_x86_64_installer="${2:?missing value for --windows-x86_64-installer}"
       shift 2
       ;;
     --release-date)
@@ -108,13 +108,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$version" || -z "$base_url" || -z "$windows_x86_64_archive" ]]; then
+if [[ -z "$version" || -z "$base_url" || -z "$windows_x86_64_installer" ]]; then
   usage >&2
   exit 1
 fi
 
-if [[ ! -f "$windows_x86_64_archive" ]]; then
-  echo "archive not found: $windows_x86_64_archive" >&2
+if [[ ! -f "$windows_x86_64_installer" ]]; then
+  echo "installer not found: $windows_x86_64_installer" >&2
   exit 1
 fi
 
@@ -122,10 +122,8 @@ if [[ -z "$output_dir" ]]; then
   output_dir="$(default_output_dir_for "$package_identifier" "$version")"
 fi
 
-windows_x86_64_name="$(basename "$windows_x86_64_archive")"
-windows_x86_64_sha256="$(sha256_file "$windows_x86_64_archive")"
-archive_root_name="${windows_x86_64_name%.zip}"
-nested_installer_path="${archive_root_name}\\bin\\amaru.exe"
+windows_x86_64_name="$(basename "$windows_x86_64_installer")"
+windows_x86_64_sha256="$(sha256_file "$windows_x86_64_installer")"
 
 mkdir -p "$output_dir"
 
@@ -144,11 +142,7 @@ cat > "${output_dir}/${package_identifier}.installer.yaml" <<EOF
 
 PackageIdentifier: ${package_identifier}
 PackageVersion: ${version}
-InstallerType: zip
-NestedInstallerType: portable
-NestedInstallerFiles:
-  - RelativeFilePath: ${nested_installer_path}
-    PortableCommandAlias: ${moniker}
+InstallerType: wix
 ReleaseDate: ${release_date}
 Installers:
   - Architecture: x64

@@ -141,6 +141,10 @@ jobs:
             target: x86_64-pc-windows-msvc
             build: build
             executable: amaru.exe
+            setup: |
+              if ! cargo wix --version >/dev/null 2>&1; then
+                cargo install cargo-wix
+              fi
             runner: windows-latest
 
     runs-on: ${{ matrix.environments.runner }}
@@ -189,7 +193,7 @@ jobs:
           fi
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Build Linux packages
+      - name: Build Debian archive
         if: ${{ startsWith(matrix.environments.title, 'linux-') }}
         shell: bash
         env:
@@ -203,11 +207,33 @@ jobs:
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/amaru' \
             PACKAGE_TARGET='${{ matrix.environments.target }}' \
             DIST_DIR='dist'
+
+      - name: Build RPM archive
+        if: ${{ startsWith(matrix.environments.title, 'linux-') }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.build-metadata.outputs.version }}
+          ARCHIVE_SUFFIX: ${{ matrix.environments.title }}
+          BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
+        run: |
           make rpm \
             ARCHIVE_ROOT_NAME="amaru-${VERSION}-${ARCHIVE_SUFFIX}" \
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/amaru' \
             PACKAGE_TARGET='${{ matrix.environments.target }}' \
+            DIST_DIR='dist'
+
+      - name: Build Windows MSI installer
+        if: ${{ matrix.environments.title == 'windows-x86_64' }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.build-metadata.outputs.version }}
+          BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
+        run: |
+          make msi \
+            ARCHIVE_ROOT_NAME="amaru-${VERSION}-windows-x86_64" \
+            BUILD_PROFILE=release \
+            AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
             DIST_DIR='dist'
 
       - uses: actions/upload-artifact@v7
@@ -222,6 +248,13 @@ jobs:
           path: |
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.deb
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.rpm
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ matrix.environments.title == 'windows-x86_64' }}
+        with:
+          name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}-packages
+          path: |
+            amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.msi
 
   draft-release:
     name: Create draft release
@@ -248,8 +281,8 @@ jobs:
             sudo apt-get install -y zip
           fi
           for artifact_dir in ./artifacts/*; do
-            if find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) | grep -q .; then
-              find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} release-assets/ \;
+            if find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
+              find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) -exec cp {} release-assets/ \;
               continue
             fi
 
@@ -351,11 +384,11 @@ jobs:
             if [[ -z "$version" ]]; then
               version="$(echo "$name" | sed -E 's/amaru-(nightly-[0-9a-f]{8,12})-.*/\1/')"
             fi
-            if find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) | grep -q .; then
+            if find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
               while IFS= read -r package; do
                 package_name="$(basename "$package" | sed -E 's/amaru-nightly-[0-9a-f]{8,12}-(.*)/\1/')"
                 cp "$package" "dist/downloads/${package_name}"
-              done < <(find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) | sort)
+              done < <(find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | sort)
               continue
             fi
             if [[ "$static_name" == windows-* ]]; then
@@ -449,6 +482,14 @@ jobs:
                         <td>zip</td>
                         <td>$version</td>
                         <td><a href="./downloads/windows-x86_64.zip">windows-x86_64.zip</a></td>
+                      </tr>
+                      <tr>
+                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-windows"/></svg></td>
+                        <td>Windows</td>
+                        <td>x86_64</td>
+                        <td>msi</td>
+                        <td>$version</td>
+                        <td><a href="./downloads/windows-x86_64.msi">windows-x86_64.msi</a></td>
                       </tr>
                       <tr>
                         <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>

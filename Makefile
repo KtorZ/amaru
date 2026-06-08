@@ -40,7 +40,7 @@ NIX_LINUX_ARM64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-aarch64.tar.gz
 NIX_LINUX_X86_64_ARCHIVE ?= ./amaru-$(AMARU_VERSION)-linux-x86_64.tar.gz
 NIX_FLAKE_OUTPUT ?= flake.nix
 WINGET_BASE_URL ?=
-WINGET_WINDOWS_X86_64_ARCHIVE ?=
+WINGET_WINDOWS_X86_64_INSTALLER ?=
 WINGET_RELEASE_DATE ?= $(shell date -u +%F)
 TRACES_PORT ?= 8000
 TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
@@ -55,7 +55,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm check-zip check-cargo-deb check-cargo-generate-rpm
+.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -277,15 +277,15 @@ check-zip:
 		exit 1; \
 	fi
 
-zip: zipball
-
-zipball: dist check-zip ## &dist Create a versioned .zip archive from $(DIST_DIR)
+zip: dist check-zip ## &dist Create a versioned .zip archive from $(DIST_DIR)
 	tmp_dir="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	mkdir -p "$$tmp_dir/$(ARCHIVE_ROOT_NAME)"; \
 	cp -R "$(DIST_DIR)"/. "$$tmp_dir/$(ARCHIVE_ROOT_NAME)/"; \
 	( cd "$$tmp_dir" && zip -qr "$(abspath $(ARCHIVE_ROOT_NAME).zip)" "$(ARCHIVE_ROOT_NAME)" ); \
 	printf 'Wrote archive %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).zip)"
+
+zipball: zip
 
 homebrew: ## &dist Generate a Homebrew formula from release archives
 	if [ -z "$(HOMEBREW_BASE_URL)" ] || [ -z "$(HOMEBREW_MACOS_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_ARM64_ARCHIVE)" ] || [ -z "$(HOMEBREW_LINUX_X86_64_ARCHIVE)" ]; then \
@@ -315,16 +315,16 @@ nix-flake: ## &dist Generate a Nix flake from release archives
 		--linux-x86_64-archive "$(NIX_LINUX_X86_64_ARCHIVE)" \
 		--output "$(NIX_FLAKE_OUTPUT)"
 
-winget: ## &dist Generate WinGet manifests from the Windows release archive
-	if [ -z "$(WINGET_BASE_URL)" ] || [ -z "$(WINGET_WINDOWS_X86_64_ARCHIVE)" ]; then \
-		echo "Error: set WINGET_BASE_URL and WINGET_WINDOWS_X86_64_ARCHIVE." >&2; \
+winget: ## &dist Generate WinGet manifests from the Windows release installer
+	if [ -z "$(WINGET_BASE_URL)" ] || [ -z "$(WINGET_WINDOWS_X86_64_INSTALLER)" ]; then \
+		echo "Error: set WINGET_BASE_URL and WINGET_WINDOWS_X86_64_INSTALLER." >&2; \
 		exit 1; \
 	fi; \
 	chmod +x scripts/generate-winget-manifests; \
 	./scripts/generate-winget-manifests \
 		--version "$(AMARU_VERSION)" \
 		--base-url "$(WINGET_BASE_URL)" \
-		--windows-x86_64-archive "$(WINGET_WINDOWS_X86_64_ARCHIVE)" \
+		--windows-x86_64-installer "$(WINGET_WINDOWS_X86_64_INSTALLER)" \
 		--release-date "$(WINGET_RELEASE_DATE)"
 
 check-cargo-deb:
@@ -354,3 +354,24 @@ rpm: dist check-cargo-generate-rpm ## &dist Build an .rpm package from $(DIST_DI
 	fi; \
 	cargo generate-rpm -p crates/amaru $(if $(PACKAGE_TARGET),--target $(PACKAGE_TARGET),) -o "$(ARCHIVE_ROOT_NAME).rpm" --set-metadata='version = "$(AMARU_VERSION)"'; \
 	printf 'Wrote package %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).rpm)"
+
+check-cargo-wix:
+	@if ! cargo wix --version >/dev/null 2>&1; then \
+		echo "Error: cargo-wix is not installed; run: cargo install cargo-wix" >&2; \
+		exit 1; \
+	fi
+
+msi: dist check-cargo-wix ## &dist Build an .msi installer from $(DIST_DIR)
+	if [ "$$OS" != "Windows_NT" ]; then \
+		echo "Error: .msi packaging is only supported on Windows." >&2; \
+		exit 1; \
+	fi; \
+	if [ -z "$(AMARU_VERSION)" ]; then \
+		echo "Error: AMARU_VERSION must not be empty when building an .msi installer." >&2; \
+		exit 1; \
+	fi; \
+	( \
+		cd crates/amaru; \
+		cargo wix --no-build --install-version "$(AMARU_VERSION)" --output "../../$(ARCHIVE_ROOT_NAME).msi"; \
+	); \
+	printf 'Wrote installer %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).msi)"
