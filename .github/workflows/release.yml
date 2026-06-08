@@ -317,69 +317,73 @@ jobs:
           }
 
           release_row() {
-            local asset_name="$1"
-            local artifact_type="$2"
-            local arch="$3"
-            local checksum="$4"
-            printf '| [%s](%s) | %s | %s | `%s` |\n' \
-              "$asset_name" \
-              "$(asset_url_for "$asset_name")" \
+            local artifact_type="$1"
+            local extension="$2"
+            local download_links="$3"
+            printf '| %s | `%s` | %s |\n' \
               "$artifact_type" \
-              "$arch" \
-              "$checksum"
+              "$extension" \
+              "$download_links"
           }
 
-          for asset in release-assets/*; do
-            if [[ -f "$asset" ]]; then
-              checksum="$(checksum_for "$asset")"
-              printf '%s  %s\n' "$checksum" "$(asset_name_for "$asset")" > "${asset}.sha256"
+          asset_link_for() {
+            local label="$1"
+            local asset_name="$2"
+            printf '[%s](%s)' "$label" "$(asset_url_for "$asset_name")"
+          }
+
+          linux_tar_x86_64="amaru-${VERSION}-linux-x86_64.tar.gz"
+          linux_tar_aarch64="amaru-${VERSION}-linux-aarch64.tar.gz"
+          linux_deb_x86_64="amaru-${VERSION}-linux-x86_64.deb"
+          linux_deb_aarch64="amaru-${VERSION}-linux-aarch64.deb"
+          linux_rpm_x86_64="amaru-${VERSION}-linux-x86_64.rpm"
+          linux_rpm_aarch64="amaru-${VERSION}-linux-aarch64.rpm"
+          macos_tar_aarch64="amaru-${VERSION}-macos-aarch64.tar.gz"
+          windows_zip_x86_64="amaru-${VERSION}-windows-x86_64.zip"
+          windows_msi_x86_64="amaru-${VERSION}-windows-x86_64.msi"
+
+          expected_assets=(
+            "$linux_tar_x86_64"
+            "$linux_tar_aarch64"
+            "$linux_deb_x86_64"
+            "$linux_deb_aarch64"
+            "$linux_rpm_x86_64"
+            "$linux_rpm_aarch64"
+            "$macos_tar_aarch64"
+            "$windows_zip_x86_64"
+            "$windows_msi_x86_64"
+          )
+
+          for asset_name in "${expected_assets[@]}"; do
+            if [[ ! -f "release-assets/${asset_name}" ]]; then
+              echo "missing expected release artifact: ${asset_name}" >&2
+              exit 1
             fi
           done
 
-          checksum_manifest="amaru-${VERSION}-sha256sums.txt"
+          for asset_name in "${expected_assets[@]}"; do
+            checksum="$(checksum_for "release-assets/${asset_name}")"
+            printf '%s  %s\n' "$checksum" "$asset_name" > "release-assets/${asset_name}.sha256"
+          done
+
+          checksum_manifest="amaru-${VERSION}__checksums.txt"
           : > "release-assets/${checksum_manifest}"
-          while IFS= read -r -d '' asset; do
-            printf '%s  %s\n' "$(checksum_for "$asset")" "$(asset_name_for "$asset")" >> "release-assets/${checksum_manifest}"
-          done < <(find release-assets -maxdepth 1 -type f ! -name '*.sha256' -print0 | sort -z)
+          for asset_name in "${expected_assets[@]}"; do
+            printf '%s  %s\n' "$(checksum_for "release-assets/${asset_name}")" "$asset_name" >> "release-assets/${checksum_manifest}"
+          done
 
-          linux_rows=()
-          macos_rows=()
-          windows_rows=()
-
-          while IFS= read -r -d '' asset; do
-            asset_name="$(asset_name_for "$asset")"
-            checksum="$(checksum_for "$asset")"
-
-            case "$asset_name" in
-              *-linux-x86_64.tar.gz)
-                linux_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "x86_64" "$checksum")")
-                ;;
-              *-linux-aarch64.tar.gz)
-                linux_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "aarch64" "$checksum")")
-                ;;
-              *-linux-x86_64.deb)
-                linux_rows+=("$(release_row "$asset_name" "Debian package" "x86_64" "$checksum")")
-                ;;
-              *-linux-aarch64.deb)
-                linux_rows+=("$(release_row "$asset_name" "Debian package" "aarch64" "$checksum")")
-                ;;
-              *-linux-x86_64.rpm)
-                linux_rows+=("$(release_row "$asset_name" "RPM package" "x86_64" "$checksum")")
-                ;;
-              *-linux-aarch64.rpm)
-                linux_rows+=("$(release_row "$asset_name" "RPM package" "aarch64" "$checksum")")
-                ;;
-              *-macos-aarch64.tar.gz)
-                macos_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "aarch64" "$checksum")")
-                ;;
-              *-windows-x86_64.zip)
-                windows_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "x86_64" "$checksum")")
-                ;;
-              *-windows-x86_64.msi)
-                windows_rows+=("$(release_row "$asset_name" "MSI installer" "x86_64" "$checksum")")
-                ;;
-            esac
-          done < <(find release-assets -maxdepth 1 -type f ! -name '*.sha256' -print0 | sort -z)
+          linux_rows=(
+            "$(release_row "Debian package" ".deb" "$(asset_link_for "aarch64" "$linux_deb_aarch64") \\| $(asset_link_for "x86_64" "$linux_deb_x86_64")")"
+            "$(release_row "RPM package" ".rpm" "$(asset_link_for "aarch64" "$linux_rpm_aarch64") \\| $(asset_link_for "x86_64" "$linux_rpm_x86_64")")"
+            "$(release_row "Pre-compiled executable" ".tar.gz" "$(asset_link_for "aarch64" "$linux_tar_aarch64") \\| $(asset_link_for "x86_64" "$linux_tar_x86_64")")"
+          )
+          macos_rows=(
+            "$(release_row "Pre-compiled executable" ".tar.gz" "$(asset_link_for "aarch64" "$macos_tar_aarch64")")"
+          )
+          windows_rows=(
+            "$(release_row "Pre-compiled executable" ".zip" "$(asset_link_for "x86_64" "$windows_zip_x86_64")")"
+            "$(release_row "MSI installer" ".msi" "$(asset_link_for "x86_64" "$windows_msi_x86_64")")"
+          )
 
           docker_registry_url="https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${DOCKER_IMAGE##*/}"
 
@@ -387,16 +391,16 @@ jobs:
             printf '# Amaru %s\n\n' "$VERSION"
             printf 'Consolidated checksums: [%s](%s)\n\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
             printf '## Linux\n\n'
-            printf '| Download | Type | Architecture | SHA-256 |\n'
-            printf '| --- | --- | --- | --- |\n'
+            printf '| Type | File Extension | Download Links |\n'
+            printf '| --- | --- | --- |\n'
             printf '%s\n' "${linux_rows[@]}"
             printf '\n## macOS\n\n'
-            printf '| Download | Type | Architecture | SHA-256 |\n'
-            printf '| --- | --- | --- | --- |\n'
+            printf '| Type | File Extension | Download Links |\n'
+            printf '| --- | --- | --- |\n'
             printf '%s\n' "${macos_rows[@]}"
             printf '\n## Windows\n\n'
-            printf '| Download | Type | Architecture | SHA-256 |\n'
-            printf '| --- | --- | --- | --- |\n'
+            printf '| Type | File Extension | Download Links |\n'
+            printf '| --- | --- | --- |\n'
             printf '%s\n' "${windows_rows[@]}"
             printf '\n## Docker\n\n'
             printf '| Image | Registry |\n'
@@ -447,7 +451,7 @@ jobs:
       - name: Attest release artifacts
         uses: actions/attest@v4
         with:
-          subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}-sha256sums.txt
+          subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}__checksums.txt
 
   docker-nightly:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
