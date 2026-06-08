@@ -33,6 +33,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_patch: ${{ steps.meta.outputs.release_patch }}
+      msi_version: ${{ steps.meta.outputs.msi_version }}
 
     steps:
       - uses: actions/checkout@v6
@@ -59,11 +60,14 @@ jobs:
 
             release_patch="$(date -u +%Y%m%d)"
             version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${release_patch}"
+            msi_build="${release_patch:3}"
+            msi_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${msi_build}"
 
             echo "is_release=true" >> "$GITHUB_OUTPUT"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "release_tag=v$version" >> "$GITHUB_OUTPUT"
             echo "release_patch=$release_patch" >> "$GITHUB_OUTPUT"
+            echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
           else
             current_version="$(read_amaru_version)"
 
@@ -83,6 +87,7 @@ jobs:
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "release_tag=" >> "$GITHUB_OUTPUT"
             echo "release_patch=0" >> "$GITHUB_OUTPUT"
+            echo "msi_version=$current_version" >> "$GITHUB_OUTPUT"
           fi
 
   rust-build:
@@ -228,12 +233,14 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.build-metadata.outputs.version }}
+          MSI_VERSION: ${{ needs.build-metadata.outputs.msi_version }}
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
         run: |
           make msi \
             ARCHIVE_ROOT_NAME="amaru-${VERSION}-windows-x86_64" \
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
+            MSI_VERSION="${MSI_VERSION}" \
             DIST_DIR='dist'
 
       - uses: actions/upload-artifact@v7

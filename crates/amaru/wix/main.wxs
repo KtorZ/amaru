@@ -118,11 +118,7 @@
     </Feature>
     <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
     <Property Id='ARPHELPLINK' Value='https://github.com/pragma-org/amaru'/>
-    <UI>
-      <UIRef Id='WixUI_FeatureTree'/>
-      <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
-      <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
-    </UI>
+    <UIRef Id='WixUI_FeatureTree'/>
     <SetProperty
       Id='RegisterPowerShellCompletion'
       Value='"[System64Folder]WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "[#RegisterCompletionScriptFile]" -InstallRoot "[APPLICATIONFOLDER]"'

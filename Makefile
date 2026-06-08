@@ -25,6 +25,7 @@ AMARU_VERSION ?= $(shell \
 		printf '%s\n' "$$version"; \
 	fi \
 )
+MSI_VERSION ?= $(AMARU_VERSION)
 ARCHIVE_COMMIT = $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf '%s' unknown)
 ARCHIVE_DIRTY_SUFFIX = $(shell if [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then printf '%s' '+dirty'; fi)
 ARCHIVE_IDENTIFIER = $(if $(AMARU_VERSION),$(AMARU_VERSION),$(ARCHIVE_COMMIT)$(ARCHIVE_DIRTY_SUFFIX))
@@ -362,6 +363,7 @@ check-cargo-wix:
 	fi
 
 msi: dist check-cargo-wix ## &dist Build an .msi installer from $(DIST_DIR)
+	set -euo pipefail; \
 	if [ "$$OS" != "Windows_NT" ]; then \
 		echo "Error: .msi packaging is only supported on Windows." >&2; \
 		exit 1; \
@@ -370,8 +372,12 @@ msi: dist check-cargo-wix ## &dist Build an .msi installer from $(DIST_DIR)
 		echo "Error: AMARU_VERSION must not be empty when building an .msi installer." >&2; \
 		exit 1; \
 	fi; \
+	if [ -z "$(MSI_VERSION)" ]; then \
+		echo "Error: MSI_VERSION must not be empty when building an .msi installer." >&2; \
+		exit 1; \
+	fi; \
 	( \
 		cd crates/amaru; \
-		cargo wix --no-build --install-version "$(AMARU_VERSION)" --output "../../$(ARCHIVE_ROOT_NAME).msi"; \
+		cargo wix --package amaru --no-build --nocapture --target-bin-dir "$(dir $(abspath $(AMARU_BIN)))" --install-version "$(MSI_VERSION)" --output "../../$(ARCHIVE_ROOT_NAME).msi"; \
 	); \
 	printf 'Wrote installer %s\n' "$(abspath $(ARCHIVE_ROOT_NAME).msi)"
