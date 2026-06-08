@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: PRAGMA.Amaru
+PackageVersion: 10.10.20260607
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: amaru-10.10.20260607-windows-x86_64\bin\amaru.exe
+    PortableCommandAlias: amaru
+ReleaseDate: 2026-06-08
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/KtorZ/amaru/releases/download/v10.10.20260607/amaru-10.10.20260607-windows-x86_64.zip
+    InstallerSha256: 8DC1C20C9FA2680DE64F2AD0B9ADE2742B0E224834178D2540DCB9130CA82C4D
+ManifestType: installer
+ManifestVersion: 1.12.0
