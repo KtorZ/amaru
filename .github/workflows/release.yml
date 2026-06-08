@@ -273,6 +273,10 @@ jobs:
 
       - name: Package release archives
         shell: bash
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+          RELEASE_TAG: ${{ needs.build-metadata.outputs.release_tag }}
+          VERSION: ${{ needs.build-metadata.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
@@ -296,6 +300,108 @@ jobs:
               tar -C ./artifacts -czf "release-assets/${name}.tar.gz" "$name"
             fi
           done
+
+          asset_name_for() {
+            basename "$1"
+          }
+
+          asset_url_for() {
+            local asset_name="$1"
+            printf 'https://github.com/%s/releases/download/%s/%s\n' "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$asset_name"
+          }
+
+          checksum_for() {
+            shasum -a 256 "$1" | awk '{print $1}'
+          }
+
+          release_row() {
+            local asset_name="$1"
+            local artifact_type="$2"
+            local arch="$3"
+            local checksum="$4"
+            printf '| [%s](%s) | %s | %s | `%s` |\n' \
+              "$asset_name" \
+              "$(asset_url_for "$asset_name")" \
+              "$artifact_type" \
+              "$arch" \
+              "$checksum"
+          }
+
+          for asset in release-assets/*; do
+            if [[ -f "$asset" ]]; then
+              checksum="$(checksum_for "$asset")"
+              printf '%s  %s\n' "$checksum" "$(asset_name_for "$asset")" > "${asset}.sha256"
+            fi
+          done
+
+          checksum_manifest="amaru-${VERSION}-sha256sums.txt"
+          : > "release-assets/${checksum_manifest}"
+          while IFS= read -r -d '' asset; do
+            printf '%s  %s\n' "$(checksum_for "$asset")" "$(asset_name_for "$asset")" >> "release-assets/${checksum_manifest}"
+          done < <(find release-assets -maxdepth 1 -type f ! -name '*.sha256' -print0 | sort -z)
+
+          linux_rows=()
+          macos_rows=()
+          windows_rows=()
+
+          while IFS= read -r -d '' asset; do
+            asset_name="$(asset_name_for "$asset")"
+            checksum="$(checksum_for "$asset")"
+
+            case "$asset_name" in
+              *-linux-x86_64.tar.gz)
+                linux_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "x86_64" "$checksum")")
+                ;;
+              *-linux-aarch64.tar.gz)
+                linux_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "aarch64" "$checksum")")
+                ;;
+              *-linux-x86_64.deb)
+                linux_rows+=("$(release_row "$asset_name" "Debian package" "x86_64" "$checksum")")
+                ;;
+              *-linux-aarch64.deb)
+                linux_rows+=("$(release_row "$asset_name" "Debian package" "aarch64" "$checksum")")
+                ;;
+              *-linux-x86_64.rpm)
+                linux_rows+=("$(release_row "$asset_name" "RPM package" "x86_64" "$checksum")")
+                ;;
+              *-linux-aarch64.rpm)
+                linux_rows+=("$(release_row "$asset_name" "RPM package" "aarch64" "$checksum")")
+                ;;
+              *-macos-aarch64.tar.gz)
+                macos_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "aarch64" "$checksum")")
+                ;;
+              *-windows-x86_64.zip)
+                windows_rows+=("$(release_row "$asset_name" "Pre-compiled executable archive" "x86_64" "$checksum")")
+                ;;
+              *-windows-x86_64.msi)
+                windows_rows+=("$(release_row "$asset_name" "MSI installer" "x86_64" "$checksum")")
+                ;;
+            esac
+          done < <(find release-assets -maxdepth 1 -type f ! -name '*.sha256' -print0 | sort -z)
+
+          docker_registry_url="https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${DOCKER_IMAGE##*/}"
+
+          {
+            printf '# Amaru %s\n\n' "$VERSION"
+            printf 'Consolidated checksums: [%s](%s)\n\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
+            printf '## Linux\n\n'
+            printf '| Download | Type | Architecture | SHA-256 |\n'
+            printf '| --- | --- | --- | --- |\n'
+            printf '%s\n' "${linux_rows[@]}"
+            printf '\n## macOS\n\n'
+            printf '| Download | Type | Architecture | SHA-256 |\n'
+            printf '| --- | --- | --- | --- |\n'
+            printf '%s\n' "${macos_rows[@]}"
+            printf '\n## Windows\n\n'
+            printf '| Download | Type | Architecture | SHA-256 |\n'
+            printf '| --- | --- | --- | --- |\n'
+            printf '%s\n' "${windows_rows[@]}"
+            printf '\n## Docker\n\n'
+            printf '| Image | Registry |\n'
+            printf '| --- | --- |\n'
+            printf '| `%s:%s` | [%s](%s) |\n' "$DOCKER_IMAGE" "$RELEASE_TAG" "$docker_registry_url" "$docker_registry_url"
+          } > release-body.md
+
           ls -lh release-assets
 
       - name: Remove stale draft release
@@ -332,7 +438,7 @@ jobs:
           tag_name: ${{ needs.build-metadata.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: Amaru ${{ needs.build-metadata.outputs.version }}
-          generate_release_notes: true
+          body_path: release-body.md
           fail_on_unmatched_files: true
           files: release-assets/*
 
