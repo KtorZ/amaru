@@ -263,6 +263,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      attestations: write
+      id-token: write
 
     steps:
       - name: Download release artifacts
@@ -441,6 +443,11 @@ jobs:
           body_path: release-body.md
           fail_on_unmatched_files: true
           files: release-assets/*
+
+      - name: Attest release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}-sha256sums.txt
 
   docker-nightly:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
