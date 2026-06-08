@@ -288,11 +288,9 @@ jobs:
           VERSION: ${{ needs.build-metadata.outputs.version }}
         run: |
           set -euo pipefail
+
           mkdir -p release-assets
-          if ! command -v zip >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zip
-          fi
+
           for artifact_dir in ./artifacts/*; do
             if find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
               find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) -exec cp {} release-assets/ \;
@@ -361,32 +359,29 @@ jobs:
             "$windows_msi_x86_64"
           )
 
+          checksum_manifest="amaru-${VERSION}__checksums.txt"
+          : > "release-assets/${checksum_manifest}"
+
           for asset_name in "${expected_assets[@]}"; do
             if [[ ! -f "release-assets/${asset_name}" ]]; then
               echo "missing expected release artifact: ${asset_name}" >&2
               exit 1
             fi
-          done
-
-          for asset_name in "${expected_assets[@]}"; do
             checksum="$(checksum_for "release-assets/${asset_name}")"
             printf '%s  %s\n' "$checksum" "$asset_name" > "release-assets/${asset_name}.sha256"
-          done
-
-          checksum_manifest="amaru-${VERSION}__checksums.txt"
-          : > "release-assets/${checksum_manifest}"
-          for asset_name in "${expected_assets[@]}"; do
-            printf '%s  %s\n' "$(checksum_for "release-assets/${asset_name}")" "$asset_name" >> "release-assets/${checksum_manifest}"
+            printf '%s  %s\n' "$checksum" "$asset_name" >> "release-assets/${checksum_manifest}"
           done
 
           linux_rows=(
+            "$(release_row "Pre-compiled executable" ".tar.gz" "$(asset_link_for "aarch64" "$linux_tar_aarch64") \\| $(asset_link_for "x86_64" "$linux_tar_x86_64")")"
             "$(release_row "Debian package" ".deb" "$(asset_link_for "aarch64" "$linux_deb_aarch64") \\| $(asset_link_for "x86_64" "$linux_deb_x86_64")")"
             "$(release_row "RPM package" ".rpm" "$(asset_link_for "aarch64" "$linux_rpm_aarch64") \\| $(asset_link_for "x86_64" "$linux_rpm_x86_64")")"
-            "$(release_row "Pre-compiled executable" ".tar.gz" "$(asset_link_for "aarch64" "$linux_tar_aarch64") \\| $(asset_link_for "x86_64" "$linux_tar_x86_64")")"
           )
+
           macos_rows=(
             "$(release_row "Pre-compiled executable" ".tar.gz" "$(asset_link_for "aarch64" "$macos_tar_aarch64")")"
           )
+
           windows_rows=(
             "$(release_row "Pre-compiled executable" ".zip" "$(asset_link_for "x86_64" "$windows_zip_x86_64")")"
             "$(release_row "MSI installer" ".msi" "$(asset_link_for "x86_64" "$windows_msi_x86_64")")"
@@ -395,8 +390,7 @@ jobs:
           docker_registry_url="https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${DOCKER_IMAGE##*/}"
 
           {
-            printf '# Amaru %s\n\n' "$VERSION"
-            printf 'Consolidated checksums: [%s](%s)\n\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
+            printf 'Checksums manifest: [%s](%s)\n\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
             printf '## Linux\n\n'
             printf '| Type | File Extension | Download Links |\n'
             printf '| --- | --- | --- |\n'
@@ -498,16 +492,21 @@ jobs:
 
       - name: Prepare combined Github Pages
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p dist/downloads
+
           version=""
           for dir in ./artifacts/*; do
             name="$(basename "$dir")"
             static_name="$(echo "$name" | sed -E 's/amaru-nightly-[0-9a-f]{8,12}-(.*)/\1/')"
+
             if [[ -z "$version" ]]; then
               version="$(echo "$name" | sed -E 's/amaru-(nightly-[0-9a-f]{8,12})-.*/\1/')"
             fi
+
             if find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
               while IFS= read -r package; do
                 package_name="$(basename "$package" | sed -E 's/amaru-nightly-[0-9a-f]{8,12}-(.*)/\1/')"
@@ -515,6 +514,7 @@ jobs:
               done < <(find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | sort)
               continue
             fi
+
             if [[ "$static_name" == windows-* ]]; then
               (
                 cd ./artifacts
@@ -524,12 +524,76 @@ jobs:
               tar -C ./artifacts -czf "dist/downloads/${static_name}.tar.gz" "$name"
             fi
           done
+
+          latest_release_tag=""
+          latest_release_name=""
+          latest_release_url=""
+          latest_release_checksums_url=""
+
+          if latest_release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" 2>/dev/null)"; then
+            latest_release_tag="$(jq -r '.tag_name // ""' <<< "$latest_release_json")"
+            latest_release_name="$(jq -r '.name // ""' <<< "$latest_release_json")"
+            latest_release_url="$(jq -r '.html_url // ""' <<< "$latest_release_json")"
+            latest_release_checksums_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest_release_tag}/amaru-${latest_release_tag#v}__checksums.txt"
+          fi
+
+          latest_release_section=""
+          if [[ -n "$latest_release_url" && -n "$latest_release_tag" ]]; then
+            latest_release_section="$(cat <<EOF
+                  <h1>Latest Release</h1>
+                  <p><a href="$latest_release_url">$latest_release_tag</a></p>
+          EOF
+            )"
+          fi
+
+          linux_rows="$(cat <<'EOF'
+                      <tr>
+                        <td>Pre-compiled executable</td>
+                        <td><code>.tar.gz</code></td>
+                        <td><a href="./downloads/linux-aarch64.tar.gz">aarch64</a> | <a href="./downloads/linux-x86_64.tar.gz">x86_64</a></td>
+                      </tr>
+                      <tr>
+                        <td>Debian package</td>
+                        <td><code>.deb</code></td>
+                        <td><a href="./downloads/linux-aarch64.deb">aarch64</a> | <a href="./downloads/linux-x86_64.deb">x86_64</a></td>
+                      </tr>
+                      <tr>
+                        <td>RPM package</td>
+                        <td><code>.rpm</code></td>
+                        <td><a href="./downloads/linux-aarch64.rpm">aarch64</a> | <a href="./downloads/linux-x86_64.rpm">x86_64</a></td>
+                      </tr>
+          EOF
+          )"
+
+          macos_rows="$(cat <<'EOF'
+                      <tr>
+                        <td>Pre-compiled executable</td>
+                        <td><code>.tar.gz</code></td>
+                        <td><a href="./downloads/macos-aarch64.tar.gz">aarch64</a></td>
+                      </tr>
+          EOF
+          )"
+
+          windows_rows="$(cat <<'EOF'
+                      <tr>
+                        <td>Pre-compiled executable</td>
+                        <td><code>.zip</code></td>
+                        <td><a href="./downloads/windows-x86_64.zip">x86_64</a></td>
+                      </tr>
+                      <tr>
+                        <td>MSI installer</td>
+                        <td><code>.msi</code></td>
+                        <td><a href="./downloads/windows-x86_64.msi">x86_64</a></td>
+                      </tr>
+          EOF
+          )"
+
           cat > dist/index.html <<EOF
             <!DOCTYPE html>
             <html lang="en">
               <head>
                 <meta charset="UTF-8" />
-                <title>Amaru Nightly Builds</title>
+                <title>Amaru Downloads</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <style>
                   body {
@@ -542,11 +606,24 @@ jobs:
                     flex-direction: column;
                     align-items: center;
                   }
-                  header { margin-bottom: 2rem; }
+                  header, section { width: min(100%, 52rem); }
+                  header { margin-bottom: 1.5rem; }
+                  main { width: min(100%, 52rem); }
                   h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+                  h2 { font-size: 1.1rem; }
+                  h3 { font-size: 1rem; margin: 0 0 0.75rem; }
                   p { margin: 0.25rem 0; }
-                  .downloads { border-collapse: collapse; width: 100%; max-width: 40rem; }
-                  .downloads th, .downloads td { padding: 0.75rem 0.5rem; border-bottom: 1px solid #e5e7eb; }
+                  .lede { color: #4b5563; }
+                  .downloads-section {
+                    background: white;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 0.75rem;
+                    padding: 1rem 1.25rem;
+                    margin-bottom: 1rem;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+                  }
+                  .downloads { border-collapse: collapse; width: 100%; }
+                  .downloads th, .downloads td { padding: 0.75rem 0.5rem; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
                   .downloads th {
                     text-align: left;
                     font-size: 0.9rem;
@@ -554,101 +631,87 @@ jobs:
                     letter-spacing: 0.04em;
                     color: #6b7280;
                   }
-                  .icon-cell { width: 2.5rem; }
-                  .icon { width: 20px; height: 20px; vertical-align: middle; margin-right: 0.4rem; }
+                  .downloads tr:last-child td { border-bottom: none; }
+                  .os-heading {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    margin-bottom: 0.5rem;
+                  }
+                  .icon { width: 20px; height: 20px; color: #6b7280; }
+                  code {
+                    font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, monospace;
+                    font-size: 0.9em;
+                  }
                   a { color: #318fe8; text-decoration: none; }
                   a:hover, a:focus { text-decoration: underline; }
                 </style>
               </head>
               <body>
-                <header><h1>Amaru Nightly Builds</h1></header>
                 <main>
-                  <table class="downloads">
-                    <thead>
-                      <tr>
-                        <th scope="col" class="icon-cell"></th>
-                        <th scope="col">Platform</th>
-                        <th scope="col">Architecture</th>
-                        <th scope="col">Format</th>
-                        <th scope="col">Version</th>
-                        <th scope="col">Download</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-apple"/></svg></td>
-                        <td>macOS</td>
-                        <td>aarch64</td>
-                        <td>tar.gz</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/macos-aarch64.tar.gz">macos-aarch64.tar.gz</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>aarch64</td>
-                        <td>tar.gz</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-aarch64.tar.gz">linux-aarch64.tar.gz</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>x86_64</td>
-                        <td>tar.gz</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-x86_64.tar.gz">linux-x86_64.tar.gz</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-windows"/></svg></td>
-                        <td>Windows</td>
-                        <td>x86_64</td>
-                        <td>zip</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/windows-x86_64.zip">windows-x86_64.zip</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-windows"/></svg></td>
-                        <td>Windows</td>
-                        <td>x86_64</td>
-                        <td>msi</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/windows-x86_64.msi">windows-x86_64.msi</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>aarch64</td>
-                        <td>deb</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-aarch64.deb">linux-aarch64.deb</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>x86_64</td>
-                        <td>deb</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-x86_64.deb">linux-x86_64.deb</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>aarch64</td>
-                        <td>rpm</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-aarch64.rpm">linux-aarch64.rpm</a></td>
-                      </tr>
-                      <tr>
-                        <td class="icon-cell"><svg class="icon"><use xlink:href="#icon-linux"/></svg></td>
-                        <td>Linux</td>
-                        <td>x86_64</td>
-                        <td>rpm</td>
-                        <td>$version</td>
-                        <td><a href="./downloads/linux-x86_64.rpm">linux-x86_64.rpm</a></td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  ${latest_release_section}
+
+                  <header>
+                    <h1>Nightly Builds</h1>
+                    <p class="lede">Version: <strong>$version</strong></p>
+                  </header>
+
+                  <section class="downloads-section">
+                    <div class="os-heading">
+                      <svg class="icon"><use xlink:href="#icon-linux"/></svg>
+                      <h2>Linux</h2>
+                    </div>
+                    <table class="downloads">
+                      <thead>
+                        <tr>
+                          <th scope="col">Type</th>
+                          <th scope="col">File Extension</th>
+                          <th scope="col">Download Links</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      ${linux_rows}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <section class="downloads-section">
+                    <div class="os-heading">
+                      <svg class="icon"><use xlink:href="#icon-apple"/></svg>
+                      <h2>macOS</h2>
+                    </div>
+                    <table class="downloads">
+                      <thead>
+                        <tr>
+                          <th scope="col">Type</th>
+                          <th scope="col">File Extension</th>
+                          <th scope="col">Download Links</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      ${macos_rows}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <section class="downloads-section">
+                    <div class="os-heading">
+                      <svg class="icon"><use xlink:href="#icon-windows"/></svg>
+                      <h2>Windows</h2>
+                    </div>
+                    <table class="downloads">
+                      <thead>
+                        <tr>
+                          <th scope="col">Type</th>
+                          <th scope="col">File Extension</th>
+                          <th scope="col">Download Links</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      ${windows_rows}
+                      </tbody>
+                    </table>
+                  </section>
                 </main>
                 <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
                   <defs>
