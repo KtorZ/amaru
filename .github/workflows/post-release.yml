@@ -136,6 +136,14 @@ jobs:
             WINGET_WINDOWS_X86_64_INSTALLER="dist/amaru-${VERSION}-windows-x86_64.msi" \
             WINGET_RELEASE_DATE="$(printf '%s' "${RELEASE_PUBLISHED_AT}" | cut -dT -f1)"
 
+      - name: Update README installation snippets
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          chmod +x scripts/update-readme-installation-sections
+          ./scripts/update-readme-installation-sections --version "${VERSION}"
+
       - name: Create packaging update PR
         uses: peter-evans/create-pull-request@v8
         with:
@@ -151,6 +159,7 @@ jobs:
           add-paths: |
             Formula/**
             flake.nix
+            README.md
             packaging/winget/**
 
   docker-release:
