@@ -352,7 +352,7 @@ jobs:
             "$windows_msi_x86_64"
           )
 
-          checksum_manifest="amaru-${VERSION}__checksums.txt"
+          checksum_manifest="amaru-${VERSION}-checksums.manifest"
           : > "release-assets/${checksum_manifest}"
 
           for asset_name in "${expected_assets[@]}"; do
@@ -361,7 +361,6 @@ jobs:
               exit 1
             fi
             checksum="$(checksum_for "release-assets/${asset_name}")"
-            printf '%s  %s\n' "$checksum" "$asset_name" > "release-assets/${asset_name}.sha256"
             printf '%s  %s\n' "$checksum" "$asset_name" >> "release-assets/${checksum_manifest}"
           done
 
@@ -445,7 +444,7 @@ jobs:
       - name: Attest release artifacts
         uses: actions/attest@v4
         with:
-          subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}__checksums.txt
+          subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}-checksums.manifest
 
   docker-nightly:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -527,7 +526,7 @@ jobs:
           if latest_release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" 2>/dev/null)"; then
             latest_release_tag="$(jq -r '.tag_name // ""' <<< "$latest_release_json")"
             latest_release_url="$(jq -r '.html_url // ""' <<< "$latest_release_json")"
-            latest_release_checksums_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest_release_tag}/amaru-${latest_release_tag#v}__checksums.txt"
+            latest_release_checksums_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest_release_tag}/amaru-${latest_release_tag#v}-checksums.manifest"
           fi
 
           artifact_args=()
