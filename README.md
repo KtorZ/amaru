@@ -26,7 +26,7 @@
 ### Installing
 
 <!-- BEGIN GENERATED INSTALLATION -->
-#### Docker Images
+#### Docker Image
 
 ```console
 docker pull ghcr.io/pragma-org/amaru:v10.10.20260609

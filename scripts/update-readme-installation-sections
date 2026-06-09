@@ -67,7 +67,7 @@ tmp_readme="$(mktemp)"
 trap 'rm -f "$snippet" "$tmp_readme"' EXIT
 
 cat > "$snippet" <<EOF
-#### Docker Images
+#### Docker Image
 
 \`\`\`console
 docker pull ghcr.io/${repository}:v${version}
