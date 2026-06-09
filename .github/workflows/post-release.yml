@@ -160,7 +160,7 @@ jobs:
             Formula/**
             flake.nix
             README.md
-            packaging/winget/**
+            manifests/**
 
   docker-release:
     needs: release-metadata

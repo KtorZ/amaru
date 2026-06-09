@@ -39,7 +39,7 @@ default_output_dir_for() {
   local identifier_path
   first_letter="$(printf '%s' "${package_identifier:0:1}" | tr '[:upper:]' '[:lower:]')"
   identifier_path="$(identifier_path_for "$package_identifier")"
-  printf 'packaging/winget/manifests/%s/%s/%s\n' "$first_letter" "$identifier_path" "$version"
+  printf 'manifests/%s/%s/%s\n' "$first_letter" "$identifier_path" "$version"
 }
 
 version=""
