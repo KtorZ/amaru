@@ -61,6 +61,9 @@ pub(crate) enum Command {
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     CreateSnapshots(cmd::create_snapshots::Args),
 
+    #[command(name = "shell-completions", hide = true)]
+    ShellCompletions(cmd::distr::Args),
+
     /// Migrate the chain database to the current version.
     ///
     /// This command is only relevant when one upgrades Amaru to a newer version that

@@ -26,11 +26,7 @@ static PACKAGE_VERSION: LazyLock<String> = LazyLock::new(|| {
         built_info::PKG_VERSION_PATCH,
     );
 
-    if built_info::PKG_VERSION_PRE.is_empty() {
-        version
-    } else {
-        format!("{version}-{}", built_info::PKG_VERSION_PRE)
-    }
+    if built_info::PKG_VERSION_PRE.is_empty() { version } else { format!("{version}-{}", built_info::PKG_VERSION_PRE) }
 });
 
 static DISPLAY_VERSION: LazyLock<String> = LazyLock::new(|| match (git_commit_hash_short(), git_dirty()) {

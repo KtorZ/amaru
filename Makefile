@@ -238,7 +238,11 @@ clean-dist:
 
 cli-assets: clean-dist  ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)
 	@printf 'Generating command-line assets under %s\n' "$(abspath $(DIST_DIR))"
-	@cargo -q run --profile $(BUILD_PROFILE) --locked --bin amaru-distr -- --output-dir "$(DIST_DIR)"
+	@if [ ! -f "$(AMARU_BIN)" ]; then \
+		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
+		exit 1; \
+	fi
+	@"$(AMARU_BIN)" --quiet shell-completions --output-dir "$(DIST_DIR)"
 	@if command -v tree >/dev/null 2>&1; then \
 		tree -h "$(DIST_DIR)"; \
 	else \

@@ -33,8 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = cli::parse(version::display_version())?;
 
-    // Skip observability setup for dump-traces-schema to avoid polluting stderr
-    let skip_logging = args.quiet || matches!(args.command, cli::Command::DumpTracesSchema(_));
+    let skip_logging =
+        args.quiet || matches!(args.command, cli::Command::DumpTracesSchema(_) | cli::Command::ShellCompletions(_));
 
     let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
@@ -59,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli::Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         cli::Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         cli::Command::CreateSnapshots(args) => cmd::create_snapshots::run(args).await,
+        cli::Command::ShellCompletions(args) => cmd::distr::run(args).await,
         cli::Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
         cli::Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
         cli::Command::RemoveChain(args) => cmd::remove_chain::run(args).await,

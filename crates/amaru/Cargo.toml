@@ -28,11 +28,6 @@ name = "amaru-ledger"
 path = "src/bin/ledger/main.rs"
 doc = false
 
-[[bin]]
-name = "amaru-distr"
-path = "src/bin/amaru-distr/main.rs"
-doc = false
-
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true

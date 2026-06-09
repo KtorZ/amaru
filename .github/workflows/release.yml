@@ -185,17 +185,10 @@ jobs:
           OUT: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cargo -q run --profile release --locked --bin amaru-distr -- --output-dir "$OUT"
-            mkdir -p "$OUT/bin" "$OUT/share/doc/amaru"
-            cp "./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}" "$OUT/bin/${{ matrix.environments.executable }}"
-            cp LICENSE README.md CHANGELOG.md "$OUT/share/doc/amaru/"
-          else
-            make dist \
-              BUILD_PROFILE=release \
-              AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
-              DIST_DIR="$OUT"
-          fi
+          make dist \
+            BUILD_PROFILE=release \
+            AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
+            DIST_DIR="$OUT"
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
       - name: Build Debian archive
