@@ -9,19 +9,19 @@ class Amaru < Formula
 
     on_arm do
       url "https://github.com/KtorZ/amaru/releases/download/v10.10.20260609/amaru-10.10.20260609-macos-aarch64.tar.gz"
-      sha256 "fe67554d7947124fee403151a09ceea82c17a6669cfe3bcd50930bb25a1979d1"
+      sha256 "bd053ecb95635f4b4b5339e2e565987d8413e9ab86bf8054698414dacf31ef4a"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/KtorZ/amaru/releases/download/v10.10.20260609/amaru-10.10.20260609-linux-aarch64.tar.gz"
-      sha256 "10e717863fba87ad94b16e32c768f6aa2a5c960c3f8426c6fd8c244597d2ef4e"
+      sha256 "813b5ed1c2dc4d2a46014a166df5d41b369e5fcc4832d80976af1a58dbdf2ee4"
     end
 
     on_intel do
       url "https://github.com/KtorZ/amaru/releases/download/v10.10.20260609/amaru-10.10.20260609-linux-x86_64.tar.gz"
-      sha256 "118ee30af11a366ecb4451c1a894d1bc443e42d10cad4621ce68643836eeda66"
+      sha256 "a45645c018cf6272c0db2212b93ff54c03f5a98d162c31e0bc54b915ab950e8e"
     end
   end
 

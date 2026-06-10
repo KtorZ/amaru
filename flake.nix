@@ -20,15 +20,15 @@
         release = {
           x86_64-linux = {
             archive = "amaru-10.10.20260609-linux-x86_64.tar.gz";
-            hash = "sha256-EY7jCvEaNm7LRFHBqJTRvEQ+QtEMrUYhzmhkODbu2mY=";
+            hash = "sha256-pFZFwBjPYnLA2yISuT/1TAP1qY0WLDHgvFS5FauVDo4=";
           };
           aarch64-linux = {
             archive = "amaru-10.10.20260609-linux-aarch64.tar.gz";
-            hash = "sha256-EOcXhj+6h62UsW4yx2j2qipclgw/hCbG/YwkRZfS704=";
+            hash = "sha256-gTte0cLcTSpGAUoWbfXUGzaeX8xIMtgJdq8aWNvfLuQ=";
           };
           aarch64-darwin = {
             archive = "amaru-10.10.20260609-macos-aarch64.tar.gz";
-            hash = "sha256-/mdVTXlHEk/uQDFRoJzuqCwXpmac/jvNUJMLsloZedE=";
+            hash = "sha256-vQU+y5VjX0tLUzni5WWYfYQT6auGv4BUaYQU2s8x70o=";
           };
         }.${system};
 
