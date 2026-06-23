@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Foo
 
-- **amaru-kernel**: changelog entry
+- **amaru-kernel**: changelog entry ([#3][], [#4][])
 
 ### Changed
 
@@ -74,6 +74,8 @@ Other guiding principles:
 ## [v10.10.20260611](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260611)
 
 
+[#3]: https://github.com/pragma-org/amaru/pull/3
+[#4]: https://github.com/pragma-org/amaru/pull/4
 [#778]: https://github.com/pragma-org/amaru/issues/778
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
