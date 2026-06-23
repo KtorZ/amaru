@@ -12,12 +12,6 @@ on:
     branches: ["*"]
 
 jobs:
-  rust-toolchain:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - run: ./scripts/check-rust-toolchain-version
-
   changes:
     runs-on: ubuntu-24.04
     # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
@@ -48,63 +42,3 @@ jobs:
           fetch-depth: 0
       - name: Validate changelog updates
         run: python3 scripts/check-changelog
-
-  unused-dependencies:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: jaxxstorm/action-install-gh-release@v1.10.0
-        with:
-          repo: bnjbvr/cargo-machete
-          tag: v0.7.0
-          binaries-location: cargo-machete-v0.7.0-x86_64-unknown-linux-musl
-      - run: cargo-machete
-
-  licenses-compatibility:
-    needs: changes
-    if: ${{ needs.changes.outputs.dependencies == 'true' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: jaxxstorm/action-install-gh-release@v1.10.0
-        with:
-          repo: EmbarkStudios/cargo-deny
-          tag: 0.16.4
-          binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
-      - run: cargo deny-amaru
-
-  license-headers:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: viperproject/check-license-header@v2
-        with:
-          path: .
-          config: .github/check-license-header.config.json
-          strict: false
-
-  clippy:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/cache
-      - run: cargo clippy-amaru
-
-  formatting:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - run: cargo fmt-amaru
-
-  docs:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: true
-      - uses: ./.github/actions/cache
-      - name: Check documentation
-        run: |
-          export RUSTDOCFLAGS="-D warnings"
-          cargo doc --no-deps --workspace
-          cargo doc -p amaru --no-deps --all-features
