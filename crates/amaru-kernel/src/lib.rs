@@ -16,6 +16,8 @@
 //
 // Re-exports still needed in a few places; but that shall become redundant as soon as we have
 // properly reworked addresses.
+//
+// Foo
 pub use pallas_addresses::{
     ByronAddress, Error as AddressError, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
     StakePayload,
