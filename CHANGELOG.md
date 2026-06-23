@@ -71,10 +71,10 @@ Other guiding principles:
 ## [v10.10.20260611](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260611)
 
 
-[#3]: https://github.com/pragma-org/amaru/pull/3
 [#778]: https://github.com/pragma-org/amaru/issues/778
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
 [#959]: https://github.com/pragma-org/amaru/pull/959
+[#3]: https://github.com/pragma-org/amaru/pull/3
