@@ -109,6 +109,11 @@ def emit_annotation(kind: str, message: str, *, line: int | None = None, title: 
         print(f"{kind.upper()}: {message}", file=sys.stderr)
 
 
+def record_failure(failures: list[str], message: str, *, line: int | None = None, title: str = "Changelog") -> None:
+    emit_annotation("error", message, line=line, title=title)
+    failures.append(message)
+
+
 def next_thursday(today: date) -> date:
     days = (3 - today.weekday()) % 7
     if days == 0:
@@ -321,15 +326,13 @@ def validate_references(lines: list[str], failures: list[str]) -> None:
     if labels != sorted(labels):
         line = refs[0][1] if refs else None
         message = "Reference links at the bottom of CHANGELOG.md must be sorted lexicographically."
-        emit_annotation("error", message, line=line, title="Reference order")
-        failures.append(message)
+        record_failure(failures, message, line=line, title="Reference order")
     if refs:
         first_ref_line = refs[0][1]
         trailing = lines[first_ref_line - 1 :]
         if any(line.strip() and not REF_DEF_RE.match(line) for line in trailing):
             message = "Reference link definitions must be grouped at the bottom of CHANGELOG.md."
-            emit_annotation("error", message, line=first_ref_line, title="Reference placement")
-            failures.append(message)
+            record_failure(failures, message, line=first_ref_line, title="Reference placement")
 
 
 def validate_release_order(
@@ -340,8 +343,7 @@ def validate_release_order(
 ) -> None:
     if not blocks:
         message = "CHANGELOG.md contains no release headers."
-        emit_annotation("error", message, line=next_release_header_line(lines, blocks), title="Missing release headers")
-        failures.append(message)
+        record_failure(failures, message, line=next_release_header_line(lines, blocks), title="Missing release headers")
         return
 
     if blocks[0].version != expected_version:
@@ -349,14 +351,12 @@ def validate_release_order(
             f"Latest changelog entry must be {expected_version}; found {blocks[0].version}. "
             f"Add or update the top release header for the next Thursday release."
         )
-        emit_annotation("error", message, line=blocks[0].line_number, title="Wrong top release")
-        failures.append(message)
+        record_failure(failures, message, line=blocks[0].line_number, title="Wrong top release")
 
     ordered = [version_date(block.version) for block in blocks]
     if ordered != sorted(ordered, reverse=True):
         message = "Release headings in CHANGELOG.md must be ordered with the latest release first."
-        emit_annotation("error", message, line=blocks[0].line_number, title="Release order")
-        failures.append(message)
+        record_failure(failures, message, line=blocks[0].line_number, title="Release order")
 
 
 def validate_target_release(
@@ -375,19 +375,16 @@ def validate_target_release(
         index = SECTION_INDEX.get(section.name)
         if index is None:
             message = f"Invalid changelog section '{section.name}'."
-            emit_annotation("error", message, line=section.line_number, title="Invalid section")
-            failures.append(message)
+            record_failure(failures, message, line=section.line_number, title="Invalid section")
             continue
         if index <= previous_index:
             message = "Changelog sections must appear in this order: Added, Changed, Deprecated, Removed, Fixed, Security."
-            emit_annotation("error", message, line=section.line_number, title="Section order")
-            failures.append(message)
+            record_failure(failures, message, line=section.line_number, title="Section order")
         previous_index = index
 
         if not section.entries:
             message = f"Section '{section.name}' must not be present without entries."
-            emit_annotation("error", message, line=section.line_number, title="Empty section")
-            failures.append(message)
+            record_failure(failures, message, line=section.line_number, title="Empty section")
 
         for entry in section.entries:
             if not ENTRY_RE.match(entry.first_line):
@@ -395,15 +392,13 @@ def validate_target_release(
                     "Entries must follow `- **CRATE/AREA**: SHORT DESCRIPTION ([#123][], [#456][])` "
                     "and continuation lines must stay indented."
                 )
-                emit_annotation("error", message, line=entry.start_line, title="Invalid entry format")
-                failures.append(message)
+                record_failure(failures, message, line=entry.start_line, title="Invalid entry format")
                 continue
 
             for extra_line in entry.lines[1:]:
                 if extra_line and not extra_line.startswith(" "):
                     message = "Optional long descriptions must be indented."
-                    emit_annotation("error", message, line=entry.start_line, title="Invalid continuation")
-                    failures.append(message)
+                    record_failure(failures, message, line=entry.start_line, title="Invalid continuation")
                     break
 
     refs_defined = {label for label, _line in changelog_references(lines)}
@@ -417,8 +412,7 @@ def validate_target_release(
                 label = ref[1 : ref.index("]")]
                 if label not in refs_defined:
                     message = f"Missing link definition for {ref} at the bottom of CHANGELOG.md."
-                    emit_annotation("error", message, line=entry.start_line, title="Missing link definition")
-                    failures.append(message)
+                    record_failure(failures, message, line=entry.start_line, title="Missing link definition")
 
     if not require_new_entry:
         return
@@ -442,8 +436,7 @@ def validate_target_release(
             "Commits requiring changelog coverage:\n"
             f"{commit_lines}"
         )
-        emit_annotation("error", message, line=line, title="Missing changelog entry")
-        failures.append(message)
+        record_failure(failures, message, line=line, title="Missing changelog entry")
 
 
 def prepare_changelog_check(
@@ -517,22 +510,24 @@ def validate_changelog_contents(
             f"Missing unreleased changelog heading for {expected_version}. Add this block:\n\n"
             f"{suggested_changelog_snippet(expected_version, expected_day)}"
         )
-        emit_annotation("error", message, line=next_release_header_line(lines, blocks), title="Missing next release header")
-        failures.append(message)
+        record_failure(
+            failures,
+            message,
+            line=next_release_header_line(lines, blocks),
+            title="Missing next release header",
+        )
     else:
         if target_block.released:
             message = (
                 f"Expected the top changelog entry for {expected_version} to be unreleased while preparing changes."
             )
-            emit_annotation("error", message, line=target_block.line_number, title="Expected unreleased heading")
-            failures.append(message)
+            record_failure(failures, message, line=target_block.line_number, title="Expected unreleased heading")
         elif target_block.planned_date != expected_day.isoformat():
             message = (
                 f"Expected the top unreleased heading for {expected_version} to include planned date "
                 f"{expected_day.isoformat()}; found {target_block.planned_date or 'no ISO date'}."
             )
-            emit_annotation("error", message, line=target_block.line_number, title="Wrong planned date")
-            failures.append(message)
+            record_failure(failures, message, line=target_block.line_number, title="Wrong planned date")
 
         base_block = None
         base_changelog = git("show", f"{base_sha}:CHANGELOG.md", check=False)
@@ -605,15 +600,27 @@ def main() -> int:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.loads(Path(event_path).read_text()) if event_path else None
 
-    return check_changelog(
-        changelog_path=Path(args.changelog),
-        manifest_path=Path(args.cargo_toml),
-        base_sha=args.base_sha,
-        head_sha=args.head_sha,
-        default_branch=args.default_branch,
-        event_name=event_name,
-        event=event,
-    )
+    try:
+        return check_changelog(
+            changelog_path=Path(args.changelog),
+            manifest_path=Path(args.cargo_toml),
+            base_sha=args.base_sha,
+            head_sha=args.head_sha,
+            default_branch=args.default_branch,
+            event_name=event_name,
+            event=event,
+        )
+    except Exception as exc:
+        message = f"check-changelog failed unexpectedly: {exc}"
+        emit_annotation("error", message, title="Unexpected failure")
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            Path(summary).write_text(
+                "## Changelog check failed unexpectedly\n\n"
+                f"```\n{message}\n```\n",
+                encoding="utf-8",
+            )
+        return 1
 
 
 if __name__ == "__main__":
