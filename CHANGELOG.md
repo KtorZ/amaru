@@ -40,7 +40,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
-- Changed the ledger
+- **amaru-kernel**: Changed the ledger ([#3][])
 
 ## [v10.10.20260618](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260618)
 
