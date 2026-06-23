@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.10.20260625 _[unreleased; planned for 2026-06-25]_
 
+### Foo
+
+- **amaru-kernel**: changelog entry
+
 ### Changed
 
 - **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
