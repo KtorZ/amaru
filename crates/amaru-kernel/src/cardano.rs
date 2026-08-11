@@ -108,6 +108,7 @@ pub mod slot;
 pub mod stake_address;
 pub mod stake_credential;
 pub mod stake_credential_kind;
+pub mod stake_entry;
 pub mod time_range;
 pub mod tip;
 pub mod transaction;
