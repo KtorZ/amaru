@@ -48,6 +48,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
+- **amaru-ledger**: Haskell's conformance test driver to adjust to the new fixture format.
 
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
