@@ -27,4 +27,29 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-jobs: {}
+jobs:
+  haskell-conformance:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      # - id: conformance-changes
+      #   uses: dorny/paths-filter@v4
+      #   with:
+      #     filters: |
+      #       any:
+      #         - "crates/amaru-ledger/tests/data/phase-one/scenarios/*"
+      #         - "crates/amaru-ledger/tests/data/phase-one/common/*"
+      #         - "crates/amaru/tests/conformance/validation-rules/**/*.hs"
+      #         - "crates/amaru/tests/conformance/validation-rules/conformance.cabal"
+      #         - "crates/amaru/tests/conformance/validation-rules/cabal.project"
+      #         - "crates/amaru/tests/conformance/validation-rules/Makefile"
+
+      # - if: steps.conformance-changes.outputs.any == 'true'
+      - shell: bash
+        working-directory: crates/amaru/tests/conformance/validation-rules
+        run: |
+          sudo apt install libsodium-dev libpcre3-dev libnuma-dev liblmdb-dev liburing-dev
+          sudo make DEPS_DIR=/usr/local/lib blst
+          sudo make DEPS_DIR=/usr/local/lib secp256k1
+          make BINDIR=dist build
+          make BINDIR=dist test

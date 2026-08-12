@@ -105,9 +105,9 @@ prerequisites: ## &cmd check required tools, libraries, and local build configur
 	fi; \
 
 build: ## &cmd compile the main binary
+	mkdir -p "$(BINDIR)"
 	$(CABAL) update
 	$(CABAL) build exe:conformance
-	mkdir -p "$(BINDIR)"
 	cp "$$($(CABAL) list-bin exe:conformance)" "$(CONFORMANCE_BIN)"
 
 test: ## &cmd run all phase-one conformance fixtures against the Haskell ledger rules
