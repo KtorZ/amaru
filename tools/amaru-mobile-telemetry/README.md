@@ -75,9 +75,9 @@ where that availability risk is acceptable:
 
 ```bash
 sudo install -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-poweroff.service /etc/systemd/system/
-sudo install -m 0440 tools/amaru-mobile-telemetry/sudoers.d/amaru-mobile-poweroff /etc/sudoers.d/
-sudo visudo --check --file=/etc/sudoers.d/amaru-mobile-poweroff
+sudo install -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-poweroff.socket /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl enable --now amaru-mobile-poweroff.socket
 sudo systemctl edit amaru-mobile-telemetry.service
 ```
 
@@ -92,14 +92,16 @@ Environment=AMARU_MOBILE_ENABLE_POWER_OFF=true
 sudo systemctl restart amaru-mobile-telemetry.service
 ```
 
-The bridge runs as `amaru`. Its sudo rule permits exactly
-`systemctl --no-block start amaru-mobile-poweroff.service`; the root-owned
-one-shot unit can only request a system power-off. Neither component grants a
-shell nor a general systemd control capability.
+The bridge runs as `amaru`. The root-owned socket unit exposes a datagram
+socket writable only by that user; receiving a datagram activates the root-owned
+one-shot power-off unit. This grants neither a shell nor general systemd
+control, and does not depend on `sudo` acquiring privilege from the bridge
+service.
 
-The power-off unit is triggered on demand and must not be enabled. The bridge
-unit intentionally sets `NoNewPrivileges=false` and `RestrictSUIDSGID=false`:
-its restricted sudo handoff needs to execute as root.
+The one-shot power-off unit is triggered on demand and must not be enabled. Its
+socket unit must remain enabled while the Bluetooth action is enabled. Existing
+installations can remove the now-unused `/etc/sudoers.d/amaru-mobile-poweroff`
+file after installing the socket unit.
 
 
 ### From MacOS

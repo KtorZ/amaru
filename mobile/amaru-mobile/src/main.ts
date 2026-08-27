@@ -13,7 +13,7 @@ import {
 } from "./protocol";
 import "./style.css";
 
-type Connection = "disconnected" | "scanning" | "connecting" | "awaiting" | "connected";
+type Connection = "disconnected" | "scanning" | "connecting" | "awaiting" | "connected" | "shutting_down";
 type Bluetooth = typeof import("@mnlphlp/plugin-blec");
 
 const app = element("#app");
@@ -32,7 +32,6 @@ let lastTipUpdateAt: number | null = null;
 let selectedAddress: string | null = null;
 let error: string | null = null;
 let confirmingPowerOff = false;
-let poweringOff = false;
 
 void initialise();
 render();
@@ -136,16 +135,17 @@ function cancelPowerOff(): void {
 }
 
 async function powerOff(): Promise<void> {
+  const previousConnection = connection;
+
   try {
-    poweringOff = true;
+    connection = "shutting_down";
+    confirmingPowerOff = false;
     error = null;
     render();
-    await bluetoothApi().send(POWER_OFF_UUID, [...POWER_OFF_COMMAND], "withoutResponse", SERVICE_UUID);
+    await bluetoothApi().send(POWER_OFF_UUID, [...POWER_OFF_COMMAND], "withResponse", SERVICE_UUID);
   } catch (cause) {
-    confirmingPowerOff = false;
+    connection = previousConnection;
     error = message(cause);
-  } finally {
-    poweringOff = false;
     render();
   }
 }
@@ -159,7 +159,6 @@ function onDisconnect(): void {
   stream.reset();
   selectedAddress = null;
   confirmingPowerOff = false;
-  poweringOff = false;
   render();
 }
 
@@ -174,7 +173,7 @@ function receiveNotification(notification: number[]): void {
         lastTipHash = next.tip.headerHash;
         lastTipUpdateAt = now;
       }
-      connection = "connected";
+      if (connection !== "shutting_down") connection = "connected";
       error = null;
       render();
     }
@@ -185,8 +184,19 @@ function receiveNotification(notification: number[]): void {
 }
 
 function render(): void {
-  app.innerHTML = snapshot === null ? setupView() : dashboardView(snapshot);
+  app.innerHTML = connection === "shutting_down" ? shutdownView() : snapshot === null ? setupView() : dashboardView(snapshot);
   bindActions();
+}
+
+function shutdownView(): string {
+  return `
+    <section class="shell setup">
+      <header class="masthead">
+        <img class="brand-logo" src="${amaruLogo}" alt="" />
+        <div><p class="eyebrow">Cardano. Everywhere.</p><h1>Amaru</h1></div>
+      </header>
+      <p class="loading"><i></i>Shutting down Amaru...</p>
+    </section>`;
 }
 
 function setupView(): string {
@@ -199,7 +209,7 @@ function setupView(): string {
           <span class="device__mark"></span>
           <span>
             <strong>${escape(device.name || "Amaru node")}</strong>
-            <small>${escape(device.address)} · ${device.rssi} dBm</small>
+            <small>${escape(device.address)}</small>
           </span>
           <span class="chevron">›</span>
         </button>`,
@@ -215,10 +225,10 @@ function setupView(): string {
         <div><p class="eyebrow">Cardano. Everywhere.</p><h1>Amaru</h1></div>
       </header>
       <div class="setup-copy">
-        <p>Connect to a nearby Amaru node over Bluetooth.</p>
+        <p>Connect to a nearby Amaru node over <i class="accent-cyan">Bluetooth</i>.</p>
       </div>
       ${waitingForTelemetry ? `<p class="loading"><i></i>${connection === "connecting" ? "Connecting to Amaru..." : "Waiting for telemetry..."}</p>` : `
-        <button class="primary" data-scan ${busy || unavailable ? "disabled" : ""}>
+        <button class="primary${connection === "scanning" ? " primary--scanning" : ""}" data-scan ${busy || unavailable ? "disabled" : ""}>
           ${unavailable ? "Open in Amaru Mobile" : connection === "scanning" ? "Scanning nearby nodes..." : "Find Amaru node"}
         </button>`}
       <section class="found" aria-live="polite">
@@ -291,7 +301,7 @@ function dashboardView(current: Snapshot): string {
         <div class="card__title">Peers</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Status</th><th>Name</th><th>RTT</th><th>Direction</th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>RTT</th></tr></thead>
             <tbody>${peers}</tbody>
           </table>
         </div>
@@ -307,8 +317,8 @@ function powerOffControl(): string {
 
   return `<span class="power-confirmation">
     <span class="power-confirmation__prompt">Power off this node?</span>
-    <button class="text-button" data-cancel-power-off ${poweringOff ? "disabled" : ""}>Cancel</button>
-    <button class="power-button" data-confirm-power-off ${poweringOff ? "disabled" : ""}>${poweringOff ? "Requesting..." : "Confirm"}</button>
+    <button class="text-button" data-cancel-power-off>Cancel</button>
+    <button class="power-button" data-confirm-power-off>Confirm</button>
   </span>`;
 }
 
@@ -342,10 +352,9 @@ function detailsCard(title: string, entries: [string, string][]): string {
 function peerRow(peer: Snapshot["peers"][number]): string {
   const direction = `${peer.outbound ? "↓" : ""}${peer.inbound ? "↑" : ""}` || "-";
   return `<tr>
-    <td><i class="peer-state ${peer.connected ? "online" : "offline"}"></i></td>
+    <td><i class="peer-state ${peer.connected ? "online" : "offline"}"></i> ${direction}</td>
     <td>${escape(peer.address)}</td>
     <td>${duration(peer.rttMicros)}</td>
-    <td>${direction}</td>
   </tr>`;
 }
 

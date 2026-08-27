@@ -15,11 +15,9 @@
 //! Narrow local handoff for the Bluetooth power-off command.
 
 use anyhow::Context;
-use tokio::process::Command;
+use tokio::net::UnixDatagram;
 
-const SUDO: &str = "/usr/bin/sudo";
-const SYSTEMCTL: &str = "/usr/bin/systemctl";
-const SERVICE: &str = "amaru-mobile-poweroff.service";
+const SOCKET_PATH: &str = "/run/amaru-mobile-poweroff.sock";
 
 /// Exact, versioned control value accepted by the power-off characteristic.
 ///
@@ -34,16 +32,12 @@ pub fn is_command(value: &[u8]) -> bool {
 
 /// Asks the dedicated root-owned systemd unit to power off the host.
 ///
-/// The exact command is constrained by the installed sudoers rule. `--no-block`
-/// acknowledges the accepted request before shutdown tears down D-Bus.
+/// The socket is writable only by the bridge user and activates the dedicated
+/// one-shot unit. This avoids relying on a setuid `sudo` transition from the
+/// restricted bridge service.
 pub async fn schedule() -> anyhow::Result<()> {
-    let status = Command::new(SUDO)
-        .args(["--non-interactive", SYSTEMCTL, "--no-block", "start", SERVICE])
-        .status()
-        .await
-        .context("start power-off service")?;
-
-    anyhow::ensure!(status.success(), "power-off service request failed with {status}");
+    let socket = UnixDatagram::unbound().context("create power-off socket")?;
+    socket.send_to(COMMAND, SOCKET_PATH).await.context("request power-off service")?;
     Ok(())
 }
 
