@@ -1,0 +1,25 @@
+[Unit]
+Description=Amaru mobile Bluetooth telemetry bridge
+After=amaru.service bluetooth.service
+Wants=amaru.service bluetooth.service
+
+[Service]
+Type=simple
+User=amaru
+Group=amaru
+SupplementaryGroups=bluetooth systemd-journal
+Environment=AMARU_NETWORK=mainnet
+Environment=AMARU_MOBILE_JOURNAL_UNIT=amaru.service
+ExecStart=/usr/local/bin/amaru-mobile-telemetry
+Restart=on-failure
+RestartSec=5
+StateDirectory=amaru-mobile-telemetry
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

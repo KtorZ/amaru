@@ -1,0 +1,7 @@
+[Unit]
+Description=Power off the host on request from Amaru Mobile
+Documentation=https://github.com/pragma-org/amaru
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --no-block poweroff

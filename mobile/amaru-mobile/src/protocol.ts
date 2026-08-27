@@ -1,0 +1,298 @@
+export const SERVICE_UUID = "8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c711";
+export const STREAM_UUID = "8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c712";
+export const POWER_OFF_UUID = "8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c713";
+export const POWER_OFF_COMMAND = new TextEncoder().encode("amaru/power-off/v1");
+
+const MAGIC = 0xa7;
+const VERSION = 1;
+const HEADER_LENGTH = 8;
+
+export type Resource = {
+  cpuPercent: number;
+  processMemoryBytes: number;
+  rssBytes: number;
+  virtualBytes: number;
+  hostMemoryUsedBytes: number;
+  hostMemoryTotalBytes: number;
+  processDiskReadBytes: number;
+  processDiskWriteBytes: number;
+  hostDiskReadBytes: number;
+  hostDiskWriteBytes: number;
+};
+
+export type Peer = {
+  address: string;
+  connected: boolean;
+  inbound: boolean;
+  outbound: boolean;
+  fullDuplex: boolean | null;
+  fullDuplexCapable: boolean | null;
+  rttMicros: number | null;
+  observeMicros: number | null;
+  queryHeaderMicros: number | null;
+  getBlockMicros: number | null;
+  adoptBlockMicros: number | null;
+};
+
+export type Snapshot = {
+  sequence: number;
+  generatedAtMillis: number;
+  node: {
+    network: string;
+    pid: number;
+    version: string;
+    uptimeSeconds: number | null;
+  };
+  resource: Resource | null;
+  throughput: {
+    blocks: number;
+    blocksPerSecond: number;
+    transactions: number;
+    transactionsPerSecond: number;
+  };
+  tip: {
+    headerHash: string;
+    slot: number;
+    blockHeight: number;
+    epoch: number;
+    slotInEpoch: number;
+    density: number;
+    transactionCount: number;
+  } | null;
+  chainQuality: {
+    averageRollbackLength: number | null;
+    rollbackFrequencyPerSecond: number | null;
+  };
+  mempool: {
+    transactions: number;
+    sizeBytes: number;
+  };
+  peers: Peer[];
+};
+
+type Frame = {
+  sequence: number;
+  index: number;
+  count: number;
+  payload: Uint8Array;
+};
+
+type Pending = {
+  sequence: number;
+  count: number;
+  fragments: Map<number, Uint8Array>;
+};
+
+/** Reassembles one stream notification sequence before decoding its CBOR payload. */
+export class SnapshotStream {
+  #pending: Pending | null = null;
+
+  reset(): void {
+    this.#pending = null;
+  }
+
+  push(notification: number[], decode: (payload: Uint8Array) => Snapshot): Snapshot | null {
+    const frame = parseFrame(notification);
+    if (frame === null) {
+      return null;
+    }
+
+    if (this.#pending === null || this.#pending.sequence !== frame.sequence) {
+      this.#pending = { sequence: frame.sequence, count: frame.count, fragments: new Map() };
+    }
+
+    if (frame.count !== this.#pending.count || frame.index >= frame.count) {
+      this.#pending = null;
+      return null;
+    }
+
+    this.#pending.fragments.set(frame.index, frame.payload);
+    if (this.#pending.fragments.size !== this.#pending.count) {
+      return null;
+    }
+
+    const payload = concatenate(this.#pending.fragments, this.#pending.count);
+    this.#pending = null;
+    return decode(payload);
+  }
+}
+
+/** Decodes the versioned CBOR positional schema emitted by amaru-mobile-telemetry. */
+export function decodeSnapshot(value: unknown): Snapshot {
+  const snapshot = array(value, "snapshot", 10);
+  if (number(snapshot[0], "version") !== VERSION) {
+    throw new Error("Unsupported telemetry stream version");
+  }
+
+  return {
+    sequence: number(snapshot[1], "sequence"),
+    generatedAtMillis: number(snapshot[2], "generated_at_millis"),
+    node: decodeNode(snapshot[3]),
+    resource: snapshot[4] === null ? null : decodeResource(snapshot[4]),
+    throughput: decodeThroughput(snapshot[5]),
+    tip: snapshot[6] === null ? null : decodeTip(snapshot[6]),
+    chainQuality: decodeChainQuality(snapshot[7]),
+    mempool: decodeMempool(snapshot[8]),
+    peers: array(snapshot[9], "peers").map(decodePeer),
+  };
+}
+
+function parseFrame(notification: number[]): Frame | null {
+  const bytes = Uint8Array.from(notification);
+  if (bytes.length <= HEADER_LENGTH || bytes[0] !== MAGIC || bytes[1] !== VERSION) {
+    return null;
+  }
+
+  return {
+    sequence: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(2),
+    index: bytes[6],
+    count: bytes[7],
+    payload: bytes.slice(HEADER_LENGTH),
+  };
+}
+
+function concatenate(fragments: Map<number, Uint8Array>, count: number): Uint8Array {
+  const parts = [] as Uint8Array[];
+  for (let index = 0; index < count; index += 1) {
+    const part = fragments.get(index);
+    if (part === undefined) throw new Error("Incomplete telemetry snapshot");
+    parts.push(part);
+  }
+
+  const size = parts.reduce((total, part) => total + part.length, 0);
+  const payload = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) {
+    payload.set(part, offset);
+    offset += part.length;
+  }
+  return payload;
+}
+
+function decodeNode(value: unknown): Snapshot["node"] {
+  const node = array(value, "node", 3, 4);
+  return {
+    network: string(node[0], "node.network"),
+    pid: number(node[1], "node.pid"),
+    version: string(node[2], "node.version"),
+    uptimeSeconds: optionalNumber(node[3], "node.uptime_seconds"),
+  };
+}
+
+function decodeResource(value: unknown): Resource {
+  const resource = array(value, "resource", 10);
+  return {
+    cpuPercent: number(resource[0], "resource.cpu_percent"),
+    processMemoryBytes: number(resource[1], "resource.process_memory_bytes"),
+    rssBytes: number(resource[2], "resource.rss_bytes"),
+    virtualBytes: number(resource[3], "resource.virtual_bytes"),
+    hostMemoryUsedBytes: number(resource[4], "resource.host_memory_used_bytes"),
+    hostMemoryTotalBytes: number(resource[5], "resource.host_memory_total_bytes"),
+    processDiskReadBytes: number(resource[6], "resource.process_disk_read_bytes"),
+    processDiskWriteBytes: number(resource[7], "resource.process_disk_write_bytes"),
+    hostDiskReadBytes: number(resource[8], "resource.host_disk_read_bytes"),
+    hostDiskWriteBytes: number(resource[9], "resource.host_disk_write_bytes"),
+  };
+}
+
+function decodeThroughput(value: unknown): Snapshot["throughput"] {
+  const throughput = array(value, "throughput", 4);
+  return {
+    blocks: number(throughput[0], "throughput.blocks"),
+    blocksPerSecond: number(throughput[1], "throughput.blocks_per_second"),
+    transactions: number(throughput[2], "throughput.transactions"),
+    transactionsPerSecond: number(throughput[3], "throughput.transactions_per_second"),
+  };
+}
+
+function decodeTip(value: unknown): NonNullable<Snapshot["tip"]> {
+  const tip = array(value, "tip", 7);
+  return {
+    headerHash: string(tip[0], "tip.header_hash"),
+    slot: number(tip[1], "tip.slot"),
+    blockHeight: number(tip[2], "tip.block_height"),
+    epoch: number(tip[3], "tip.epoch"),
+    slotInEpoch: number(tip[4], "tip.slot_in_epoch"),
+    density: number(tip[5], "tip.density"),
+    transactionCount: number(tip[6], "tip.transaction_count"),
+  };
+}
+
+function decodeChainQuality(value: unknown): Snapshot["chainQuality"] {
+  const quality = array(value, "chain_quality", 0, 2);
+  return {
+    averageRollbackLength: optionalNumber(quality[0], "chain_quality.average_rollback_length"),
+    rollbackFrequencyPerSecond: optionalNumber(quality[1], "chain_quality.rollback_frequency_per_second"),
+  };
+}
+
+function decodeMempool(value: unknown): Snapshot["mempool"] {
+  const mempool = array(value, "mempool", 2);
+  return {
+    transactions: number(mempool[0], "mempool.transactions"),
+    sizeBytes: number(mempool[1], "mempool.size_bytes"),
+  };
+}
+
+function decodePeer(value: unknown): Peer {
+  const peer = array(value, "peer", 4, 11);
+  return {
+    address: string(peer[0], "peer.address"),
+    connected: boolean(peer[1], "peer.connected"),
+    inbound: boolean(peer[2], "peer.inbound"),
+    outbound: boolean(peer[3], "peer.outbound"),
+    fullDuplex: optionalBoolean(peer[4], "peer.full_duplex"),
+    fullDuplexCapable: optionalBoolean(peer[5], "peer.full_duplex_capable"),
+    rttMicros: optionalNumber(peer[6], "peer.rtt_micros"),
+    observeMicros: optionalNumber(peer[7], "peer.observe_micros"),
+    queryHeaderMicros: optionalNumber(peer[8], "peer.query_header_micros"),
+    getBlockMicros: optionalNumber(peer[9], "peer.get_block_micros"),
+    adoptBlockMicros: optionalNumber(peer[10], "peer.adopt_block_micros"),
+  };
+}
+
+/// Minicbor omits trailing `Option` fields from array encodings.
+function array(value: unknown, name: string, minimumLength?: number, maximumLength = minimumLength): unknown[] {
+  if (
+    !Array.isArray(value) ||
+    (minimumLength !== undefined && (value.length < minimumLength || value.length > maximumLength!))
+  ) {
+    throw new Error(`Invalid ${name} payload`);
+  }
+  return value;
+}
+
+function string(value: unknown, name: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`Invalid ${name}`);
+  }
+  return value;
+}
+
+function number(value: unknown, name: string): number {
+  if (typeof value === "bigint") {
+    const converted = Number(value);
+    if (Number.isSafeInteger(converted)) {
+      return converted;
+    }
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  throw new Error(`Invalid ${name}`);
+}
+
+function optionalNumber(value: unknown, name: string): number | null {
+  return value === null || value === undefined ? null : number(value, name);
+}
+
+function boolean(value: unknown, name: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`Invalid ${name}`);
+  }
+  return value;
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | null {
+  return value === null || value === undefined ? null : boolean(value, name);
+}

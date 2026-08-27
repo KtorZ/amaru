@@ -1,0 +1,2 @@
+# Permit the telemetry bridge to request only the dedicated power-off unit.
+amaru ALL=(root) NOPASSWD: /usr/bin/systemctl --no-block start amaru-mobile-poweroff.service

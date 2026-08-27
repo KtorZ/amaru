@@ -1,0 +1,81 @@
+name: Build Mobile Telemetry Bridge
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build aarch64 Linux bridge
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pkg-config musl musl-dev musl-tools
+          sudo snap install zig --classic --beta
+          if ! command -v cargo-zigbuild >/dev/null 2>&1; then
+            cargo install cargo-zigbuild --locked
+          fi
+          rustup target add aarch64-unknown-linux-musl
+
+      - name: Build static bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo zigbuild \
+            --manifest-path tools/amaru-mobile-telemetry/Cargo.toml \
+            --release \
+            --locked \
+            --target aarch64-unknown-linux-musl \
+            --features vendored-dbus
+
+      - name: Verify static linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary='tools/amaru-mobile-telemetry/target/aarch64-unknown-linux-musl/release/amaru-mobile-telemetry'
+          file "$binary"
+          if readelf --dynamic "$binary" | grep -q '(NEEDED)'; then
+            echo 'the bridge has shared-library dependencies' >&2
+            readelf --dynamic "$binary" >&2
+            exit 1
+          fi
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name='amaru-mobile-telemetry-aarch64-unknown-linux-musl'
+          root="dist/$name"
+          binary='tools/amaru-mobile-telemetry/target/aarch64-unknown-linux-musl/release/amaru-mobile-telemetry'
+
+          install -D -m 0755 "$binary" "$root/amaru-mobile-telemetry"
+          install -D -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-telemetry.service "$root/amaru-mobile-telemetry.service"
+          install -D -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-poweroff.service "$root/amaru-mobile-poweroff.service"
+          install -D -m 0440 tools/amaru-mobile-telemetry/sudoers.d/amaru-mobile-poweroff "$root/sudoers.d/amaru-mobile-poweroff"
+          install -D -m 0644 tools/amaru-mobile-telemetry/README.md "$root/README.md"
+          sha256sum "$root/amaru-mobile-telemetry" > "$root/SHA256SUMS"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+
+          echo "archive=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload static bridge
+        uses: actions/upload-artifact@v7
+        with:
+          name: amaru-mobile-telemetry-aarch64-linux-musl
+          path: ${{ steps.package.outputs.archive }}
+          retention-days: 14
