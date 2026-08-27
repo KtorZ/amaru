@@ -23,12 +23,12 @@ Run Amaru with JSON traces. The bridge reads `amaru.service` through
 samples process/host resource data itself because those metrics are not part of
 the JSON trace stream.
 
-The bridge checkpoints journald's cursor under its systemd state directory.
-On restart, it replays entries after that cursor as historical state, then
-follows new entries. If journal retention has removed the cursor, it instead
-replays the most recent 4,096 entries. Historical entries restore the current
-tip, peers and mempool without inflating the bridge's local throughput or
-rollback counters.
+The bridge rebuilds its in-memory dashboard projection from the most recent
+4,096 journal entries on every start, preserving each journal timestamp. It
+then checkpoints the final cursor under its systemd state directory and follows
+new entries from there. This restores the current tip, peers, and mempool, and
+reconstructs recent throughput and rollback statistics without treating the
+replay itself as live work.
 
 ```ini
 # /etc/systemd/system/amaru.service.d/mobile-telemetry.conf
@@ -38,9 +38,10 @@ Environment=AMARU_TRACE=warn,amaru=debug,amaru_pure_stage=warn
 StandardOutput=journal
 ```
 
-The `debug` trace filter is necessary for the roll-forward and transaction
-validation spans that drive throughput. This is an opt-in operator setup: JSON
-traces are materially more verbose than normal node logging.
+The `debug` trace filter is necessary for `tip.update`, which provides the
+debounced block and transaction deltas used for throughput. This is an opt-in
+operator setup: JSON traces are materially more verbose than normal node
+logging.
 
 The bridge unit grants its `amaru` process journal access through the
 `systemd-journal` group. Override `AMARU_MOBILE_JOURNAL_UNIT` when the node
@@ -121,8 +122,8 @@ docker run --rm \
 | Stream UUID | `8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c712` |
 | Power-off UUID | `8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c713` when `AMARU_MOBILE_ENABLE_POWER_OFF=true` |
 | Stream characteristic | Notify |
-| Power-off characteristic | Write with response, exact UTF-8 `amaru/power-off/v1` |
-| Snapshot | CBOR array, version `1` |
+| Power-off characteristic | Write, exact UTF-8 `amaru/power-off/v1` |
+| Snapshot | CBOR array, version `3` |
 | Fragment | `0xa7`, version, big-endian sequence, index, count, payload |
 
 BlueZ's local GATT notification API does not expose an encryption requirement

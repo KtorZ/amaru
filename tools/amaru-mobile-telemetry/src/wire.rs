@@ -21,7 +21,7 @@ use minicbor::{Encode, Encoder};
 use crate::projection::{ChainQuality, Mempool, Peer, Projection, ResourceSample, Throughput, Tip};
 
 /// Current CBOR snapshot version.
-pub const SNAPSHOT_VERSION: u8 = 1;
+pub const SNAPSHOT_VERSION: u8 = 3;
 
 /// One-byte marker used to reject unrelated GATT notifications quickly.
 pub const FRAGMENT_MAGIC: u8 = 0xa7;
@@ -39,10 +39,10 @@ pub const MAX_SNAPSHOT_BYTES: usize = 7 * 1_024;
 ///
 /// A CBOR array keeps the client decoder compact. Field order is part of the versioned
 /// contract; a new order requires a new [`SNAPSHOT_VERSION`].
-pub fn snapshot_bytes(projection: &Projection, sequence: u32) -> Vec<u8> {
+pub fn snapshot_bytes(projection: &Projection, sequence: u32, power_off_enabled: bool) -> Vec<u8> {
     let mut peers = projection.peers();
     loop {
-        let snapshot = Snapshot::from_projection(projection, sequence, &peers);
+        let snapshot = Snapshot::from_projection(projection, sequence, &peers, power_off_enabled);
         let mut bytes = Vec::with_capacity(2_048);
         Encoder::new(&mut bytes).encode(snapshot).expect("encoding mobile telemetry cannot fail");
         if bytes.len() <= MAX_SNAPSHOT_BYTES || peers.is_empty() {
@@ -96,10 +96,12 @@ struct Snapshot<'a> {
     mempool: MempoolWire,
     #[n(9)]
     peers: Vec<PeerWire<'a>>,
+    #[n(10)]
+    power_off_enabled: bool,
 }
 
 impl<'a> Snapshot<'a> {
-    fn from_projection(projection: &'a Projection, sequence: u32, peers: &'a [Peer]) -> Self {
+    fn from_projection(projection: &'a Projection, sequence: u32, peers: &'a [Peer], power_off_enabled: bool) -> Self {
         Self {
             version: SNAPSHOT_VERSION,
             sequence,
@@ -116,6 +118,7 @@ impl<'a> Snapshot<'a> {
             chain_quality: ChainQualityWire::from_chain_quality(projection.chain_quality()),
             mempool: MempoolWire::from_mempool(projection.mempool()),
             peers: peers.iter().map(PeerWire::from_peer).collect(),
+            power_off_enabled,
         }
     }
 }
@@ -284,23 +287,9 @@ struct PeerWire<'a> {
     #[n(1)]
     connected: bool,
     #[n(2)]
-    inbound: bool,
-    #[n(3)]
-    outbound: bool,
-    #[n(4)]
-    full_duplex: Option<bool>,
-    #[n(5)]
-    full_duplex_capable: Option<bool>,
-    #[n(6)]
     rtt_micros: Option<u64>,
-    #[n(7)]
-    observe_micros: Option<u64>,
-    #[n(8)]
-    query_header_micros: Option<u64>,
-    #[n(9)]
-    get_block_micros: Option<u64>,
-    #[n(10)]
-    adopt_block_micros: Option<u64>,
+    #[n(3)]
+    direction: u8,
 }
 
 impl<'a> PeerWire<'a> {
@@ -308,15 +297,8 @@ impl<'a> PeerWire<'a> {
         Self {
             address: &peer.address,
             connected: peer.connected,
-            inbound: peer.inbound,
-            outbound: peer.outbound,
-            full_duplex: peer.full_duplex,
-            full_duplex_capable: peer.full_duplex_capable,
             rtt_micros: peer.rtt_micros,
-            observe_micros: peer.observe_micros,
-            query_header_micros: peer.query_header_micros,
-            get_block_micros: peer.get_block_micros,
-            adopt_block_micros: peer.adopt_block_micros,
+            direction: u8::from(peer.outbound) | (u8::from(peer.inbound) << 1),
         }
     }
 }
@@ -333,7 +315,7 @@ mod tests {
             projection.insert_peer(Peer::new(format!("[2001:db8::{index}]:3001")));
         }
 
-        let bytes = snapshot_bytes(&projection, 7);
+        let bytes = snapshot_bytes(&projection, 7, false);
         assert!(bytes.len() <= MAX_SNAPSHOT_BYTES);
 
         let fragments = fragment(7, &bytes);

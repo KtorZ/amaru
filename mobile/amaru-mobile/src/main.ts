@@ -33,7 +33,6 @@ let selectedAddress: string | null = null;
 let error: string | null = null;
 let confirmingPowerOff = false;
 let poweringOff = false;
-let powerOffAvailable = false;
 
 void initialise();
 render();
@@ -117,7 +116,6 @@ async function attach(address: string): Promise<void> {
     render();
     await ble.stopScan();
     await ble.connect(address, onDisconnect);
-    powerOffAvailable = await hasPowerOffCharacteristic(ble, address);
     await ble.subscribe(STREAM_UUID, SERVICE_UUID, receiveNotification);
     connection = "awaiting";
   } catch (cause) {
@@ -162,7 +160,6 @@ function onDisconnect(): void {
   selectedAddress = null;
   confirmingPowerOff = false;
   poweringOff = false;
-  powerOffAvailable = false;
   render();
 }
 
@@ -225,7 +222,7 @@ function setupView(): string {
           ${unavailable ? "Open in Amaru Mobile" : connection === "scanning" ? "Scanning nearby nodes..." : "Find Amaru node"}
         </button>`}
       <section class="found" aria-live="polite">
-        ${waitingForTelemetry ? "" : nodes || (connection === "scanning" ? '<p class="muted">Looking for the Amaru Bluetooth service...</p>' : '')}
+        ${waitingForTelemetry ? "" : nodes || ""}
       </section>
       ${unavailable ? '<p class="notice">Bluetooth is available only from the native Tauri application. Start it with <code>npm run tauri dev</code> for macOS or <code>npm run tauri ios dev</code> for an iPhone.</p>' : ""}
       ${error === null ? "" : `<p class="error">${escape(error)}</p>`}
@@ -234,7 +231,7 @@ function setupView(): string {
 
 function dashboardView(current: Snapshot): string {
   const resource = current.resource;
-  const peers = current.peers.map(peerRow).join("") || '<tr><td colspan="6" class="muted">No peer telemetry yet.</td></tr>';
+  const peers = current.peers.map(peerRow).join("") || '<tr><td colspan="4" class="muted">No peer telemetry yet.</td></tr>';
   const tip = current.tip;
   const signalLost = lastPayloadAt === null || Date.now() - lastPayloadAt > SIGNAL_TIMEOUT_MS;
 
@@ -244,7 +241,7 @@ function dashboardView(current: Snapshot): string {
         <img class="brand-logo brand-logo--compact" src="${amaruLogo}" alt="" />
         <div class="node-name"><strong>AMARU</strong><span>${escape(current.node.version.replace(/^amaru\s+/i, ""))}</span></div>
         <span class="connection ${signalLost ? "connection--lost" : ""}"><i></i>${signalLost ? "no signal" : lastTipAge()}</span>
-        ${powerOffAvailable ? powerOffControl() : ""}
+        ${current.powerOffEnabled ? powerOffControl() : ""}
       </header>
 
       ${detailsCard("Node", [
@@ -294,7 +291,7 @@ function dashboardView(current: Snapshot): string {
         <div class="card__title">Peers</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Peer</th><th>RTT</th><th>Query</th><th>Fetch</th><th>Adopt</th><th>Direction</th></tr></thead>
+            <thead><tr><th>Status</th><th>Name</th><th>RTT</th><th>Direction</th></tr></thead>
             <tbody>${peers}</tbody>
           </table>
         </div>
@@ -315,22 +312,6 @@ function powerOffControl(): string {
   </span>`;
 }
 
-async function hasPowerOffCharacteristic(ble: Bluetooth, address: string): Promise<boolean> {
-  try {
-    const services = await ble.listServices(address);
-    return (
-      Array.isArray(services) &&
-      services.some(
-        (service) =>
-          service.uuid.toLowerCase() === SERVICE_UUID &&
-          service.characteristics.some((characteristic) => characteristic.uuid.toLowerCase() === POWER_OFF_UUID),
-      )
-    );
-  } catch {
-    return false;
-  }
-}
-
 function metric(label: string, value: string, valueAsPercent: number | null, showPercent = true): string {
   const boundedPercent = valueAsPercent === null ? null : Math.min(100, Math.max(0, valueAsPercent));
   const detail = showPercent && boundedPercent !== null ? `<small>${boundedPercent.toFixed(1)}%</small>` : "";
@@ -339,15 +320,17 @@ function metric(label: string, value: string, valueAsPercent: number | null, sho
 }
 
 function tipCard(tip: Snapshot["tip"]): string {
-  return `<section class="card tip-card">
-    <div class="card__title">Local tip <span>${tip === null ? "waiting" : `epoch ${tip.epoch}`}</span></div>
-    ${tip === null ? '<p class="muted">Waiting for a tip.update trace.</p>' : `
-      <dl class="details details--wide">
-        <div><dt>Slot</dt><dd>${count(tip.slot)} · +${count(tip.slotInEpoch)}</dd></div>
-        <div><dt>Height</dt><dd>${count(tip.blockHeight)}</dd></div>
-        <div><dt>Hash</dt><dd class="hash">${escape(tip.headerHash)}</dd></div>
-      </dl>`}
-  </section>`;
+  return detailsCard(
+    "Local tip",
+    tip === null
+      ? [["Status", "Waiting for a tip.update trace."]]
+      : [
+          ["Epoch", String(tip.epoch)],
+          ["Slot", count(tip.slot)],
+          ["Height", count(tip.blockHeight)],
+          ["Hash", tip.headerHash.slice(0, 16)],
+        ],
+  );
 }
 
 function detailsCard(title: string, entries: [string, string][]): string {
@@ -357,14 +340,12 @@ function detailsCard(title: string, entries: [string, string][]): string {
 }
 
 function peerRow(peer: Snapshot["peers"][number]): string {
-  const direction = `${peer.inbound ? "↓" : ""}${peer.outbound ? "↑" : ""}` || "-";
+  const direction = `${peer.outbound ? "↓" : ""}${peer.inbound ? "↑" : ""}` || "-";
   return `<tr>
-    <td><i class="peer-state ${peer.connected ? "online" : "offline"}"></i>${escape(peer.address)}</td>
+    <td><i class="peer-state ${peer.connected ? "online" : "offline"}"></i></td>
+    <td>${escape(peer.address)}</td>
     <td>${duration(peer.rttMicros)}</td>
-    <td>${duration(peer.queryHeaderMicros)}</td>
-    <td>${duration(peer.getBlockMicros)}</td>
-    <td>${duration(peer.adoptBlockMicros)}</td>
-    <td>${direction}${peer.fullDuplexCapable ? " ↕" : ""}</td>
+    <td>${direction}</td>
   </tr>`;
 }
 

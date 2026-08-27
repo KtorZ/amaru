@@ -44,7 +44,7 @@ pub const SERVICE_UUID: Uuid = Uuid::from_u128(0x8b4cb36a_7a5d_4f9f_8f31_6a5f4fc
 /// Notification-only stream characteristic UUID.
 pub const STREAM_UUID: Uuid = Uuid::from_u128(0x8b4cb36a_7a5d_4f9f_8f31_6a5f4fc8c712);
 
-/// Write-with-response characteristic for the fixed power-off command.
+/// Writable characteristic for the fixed power-off command.
 pub const POWER_OFF_UUID: Uuid = Uuid::from_u128(0x8b4cb36a_7a5d_4f9f_8f31_6a5f4fc8c713);
 
 /// Keeps the receiver's notification queue from being overwhelmed by one snapshot.
@@ -74,7 +74,11 @@ pub async fn serve(
         .await?;
     let application = adapter.serve_gatt_application(application(snapshots, enable_power_off)).await?;
 
-    eprintln!("Amaru mobile telemetry available on {} ({})", adapter.name(), adapter.address().await?);
+    eprintln!(
+        "Amaru mobile telemetry available on {} ({}) power_off_enabled={enable_power_off}",
+        adapter.name(),
+        adapter.address().await?
+    );
     tokio::signal::ctrl_c().await?;
     drop(application);
     drop(advertisement);

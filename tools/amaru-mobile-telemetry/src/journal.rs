@@ -14,7 +14,12 @@
 
 //! Incremental reader for JSON traces held by the system journal.
 
-use std::{io, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    io,
+    path::PathBuf,
+    process::Stdio,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
 use serde::Deserialize;
@@ -30,34 +35,31 @@ const CURSOR_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const INITIAL_REPLAY_ENTRIES: usize = 4_096;
 const RESTART_DELAY: Duration = Duration::from_secs(1);
 
-/// A trace line paired with whether it preceded this bridge instance.
+/// A trace line and the time recorded by the system journal.
 #[derive(Debug)]
 pub struct TraceLine {
-    pub historical: bool,
+    pub at: SystemTime,
     pub text: String,
 }
 
 /// Follows JSON traces emitted by `unit` and checkpoints the latest journal cursor.
-///
-/// Entries replayed after a bridge restart are marked historical so they restore point-in-time
-/// state without inflating local throughput and rollback counters. Once caught up, the bridge
-/// follows the journal after that exact cursor.
 pub async fn follow(unit: String, cursor_path: PathBuf, sender: Sender<TraceLine>) -> anyhow::Result<()> {
     let mut cursor = Cursor::load(cursor_path).await?;
 
-    if let Some(previous) = cursor.value() {
-        if let Err(error) = consume(command(&unit, Some(previous), false, None), true, &mut cursor, &sender).await {
-            eprintln!("amaru-mobile-telemetry: unable to resume journal cursor, replaying recent entries: {error:#}");
-            consume(command(&unit, None, false, Some(INITIAL_REPLAY_ENTRIES)), true, &mut cursor, &sender).await?;
-        }
-    } else {
-        consume(command(&unit, None, false, Some(INITIAL_REPLAY_ENTRIES)), true, &mut cursor, &sender).await?;
+    // The projected dashboard state is intentionally in-memory only. Rebuild it from a bounded
+    // recent window whenever the bridge starts, then use its final cursor to enter live follow.
+    if let Err(error) = consume(command(&unit, None, false, Some(INITIAL_REPLAY_ENTRIES)), &mut cursor, &sender).await {
+        let Some(previous) = cursor.value() else {
+            return Err(error).context("replay recent journal entries");
+        };
+        eprintln!("amaru-mobile-telemetry: unable to replay recent journal entries, resuming saved cursor: {error:#}");
+        consume(command(&unit, Some(previous), false, None), &mut cursor, &sender).await?;
     }
     cursor.flush().await?;
 
     loop {
         let after = cursor.value();
-        match consume(command(&unit, after, true, None), false, &mut cursor, &sender).await {
+        match consume(command(&unit, after, true, None), &mut cursor, &sender).await {
             Ok(()) if sender.is_closed() => return Ok(()),
             Ok(()) => eprintln!("amaru-mobile-telemetry: journal follower exited unexpectedly; restarting"),
             Err(error) => eprintln!("amaru-mobile-telemetry: journal follower failed; restarting: {error:#}"),
@@ -92,12 +94,7 @@ fn command(unit: &str, after: Option<&str>, follow: bool, tail: Option<usize>) -
     command
 }
 
-async fn consume(
-    mut command: Command,
-    historical: bool,
-    cursor: &mut Cursor,
-    sender: &Sender<TraceLine>,
-) -> anyhow::Result<()> {
+async fn consume(mut command: Command, cursor: &mut Cursor, sender: &Sender<TraceLine>) -> anyhow::Result<()> {
     let mut child = command.spawn().context("spawn journalctl")?;
     let stdout = child.stdout.take().context("capture journalctl stdout")?;
     let mut lines = BufReader::new(stdout).lines();
@@ -111,11 +108,12 @@ async fn consume(
                     let Ok(entry) = serde_json::from_str::<JournalEntry>(&line) else {
                         continue;
                     };
+                    let at = entry.recorded_at();
                     cursor.observe(entry.cursor);
 
                     if let Some(message) = entry.message
                         && is_relevant(&message)
-                        && sender.send(TraceLine { historical, text: message }).await.is_err()
+                        && sender.send(TraceLine { at, text: message }).await.is_err()
                     {
                         return Ok(());
                     }
@@ -136,8 +134,20 @@ async fn consume(
 struct JournalEntry {
     #[serde(rename = "__CURSOR")]
     cursor: String,
+    #[serde(rename = "__REALTIME_TIMESTAMP")]
+    recorded_at_micros: String,
     #[serde(rename = "MESSAGE")]
     message: Option<String>,
+}
+
+impl JournalEntry {
+    fn recorded_at(&self) -> SystemTime {
+        self.recorded_at_micros
+            .parse::<u64>()
+            .ok()
+            .and_then(|micros| UNIX_EPOCH.checked_add(Duration::from_micros(micros)))
+            .unwrap_or_else(SystemTime::now)
+    }
 }
 
 /// Atomic checkpoint of the latest journal entry observed by the bridge.
@@ -191,10 +201,13 @@ mod tests {
 
     #[test]
     fn parses_json_journal_entries() {
-        let entry = serde_json::from_str::<JournalEntry>(r#"{"__CURSOR":"s=cursor","MESSAGE":"{\"fields\":{}}"}"#)
-            .expect("journal entry");
+        let entry = serde_json::from_str::<JournalEntry>(
+            r#"{"__CURSOR":"s=cursor","__REALTIME_TIMESTAMP":"1","MESSAGE":"{\"fields\":{}}"}"#,
+        )
+        .expect("journal entry");
 
         assert_eq!(entry.cursor, "s=cursor");
         assert_eq!(entry.message.as_deref(), Some(r#"{"fields":{}}"#));
+        assert_eq!(entry.recorded_at(), UNIX_EPOCH + Duration::from_micros(1));
     }
 }

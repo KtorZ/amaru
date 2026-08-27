@@ -4,7 +4,9 @@ export const POWER_OFF_UUID = "8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c713";
 export const POWER_OFF_COMMAND = new TextEncoder().encode("amaru/power-off/v1");
 
 const MAGIC = 0xa7;
-const VERSION = 1;
+const VERSION = 3;
+const PREVIOUS_VERSION = 2;
+const OLDEST_VERSION = 1;
 const HEADER_LENGTH = 8;
 
 export type Resource = {
@@ -25,13 +27,7 @@ export type Peer = {
   connected: boolean;
   inbound: boolean;
   outbound: boolean;
-  fullDuplex: boolean | null;
-  fullDuplexCapable: boolean | null;
   rttMicros: number | null;
-  observeMicros: number | null;
-  queryHeaderMicros: number | null;
-  getBlockMicros: number | null;
-  adoptBlockMicros: number | null;
 };
 
 export type Snapshot = {
@@ -68,6 +64,7 @@ export type Snapshot = {
     sizeBytes: number;
   };
   peers: Peer[];
+  powerOffEnabled: boolean;
 };
 
 type Frame = {
@@ -119,9 +116,13 @@ export class SnapshotStream {
 
 /** Decodes the versioned CBOR positional schema emitted by amaru-mobile-telemetry. */
 export function decodeSnapshot(value: unknown): Snapshot {
-  const snapshot = array(value, "snapshot", 10);
-  if (number(snapshot[0], "version") !== VERSION) {
+  const snapshot = array(value, "snapshot", 10, 11);
+  const version = number(snapshot[0], "version");
+  if (version !== VERSION && version !== PREVIOUS_VERSION && version !== OLDEST_VERSION) {
     throw new Error("Unsupported telemetry stream version");
+  }
+  if ((version !== OLDEST_VERSION && snapshot.length !== 11) || (version === OLDEST_VERSION && snapshot.length !== 10)) {
+    throw new Error("Invalid snapshot payload");
   }
 
   return {
@@ -133,13 +134,18 @@ export function decodeSnapshot(value: unknown): Snapshot {
     tip: snapshot[6] === null ? null : decodeTip(snapshot[6]),
     chainQuality: decodeChainQuality(snapshot[7]),
     mempool: decodeMempool(snapshot[8]),
-    peers: array(snapshot[9], "peers").map(decodePeer),
+    peers: array(snapshot[9], "peers").map((peer) => decodePeer(peer, version)),
+    powerOffEnabled: version !== OLDEST_VERSION && boolean(snapshot[10], "power_off_enabled"),
   };
 }
 
 function parseFrame(notification: number[]): Frame | null {
   const bytes = Uint8Array.from(notification);
-  if (bytes.length <= HEADER_LENGTH || bytes[0] !== MAGIC || bytes[1] !== VERSION) {
+  if (
+    bytes.length <= HEADER_LENGTH ||
+    bytes[0] !== MAGIC ||
+    (bytes[1] !== VERSION && bytes[1] !== PREVIOUS_VERSION && bytes[1] !== OLDEST_VERSION)
+  ) {
     return null;
   }
 
@@ -234,20 +240,30 @@ function decodeMempool(value: unknown): Snapshot["mempool"] {
   };
 }
 
-function decodePeer(value: unknown): Peer {
+function decodePeer(value: unknown, version: number): Peer {
+  if (version === VERSION) {
+    const peer = array(value, "peer", 4);
+    const direction = number(peer[3], "peer.direction");
+    if (!Number.isInteger(direction) || direction < 0 || direction > 3) {
+      throw new Error("Invalid peer.direction");
+    }
+
+    return {
+      address: string(peer[0], "peer.address"),
+      connected: boolean(peer[1], "peer.connected"),
+      rttMicros: optionalNumber(peer[2], "peer.rtt_micros"),
+      outbound: (direction & 1) !== 0,
+      inbound: (direction & 2) !== 0,
+    };
+  }
+
   const peer = array(value, "peer", 4, 11);
   return {
     address: string(peer[0], "peer.address"),
     connected: boolean(peer[1], "peer.connected"),
     inbound: boolean(peer[2], "peer.inbound"),
     outbound: boolean(peer[3], "peer.outbound"),
-    fullDuplex: optionalBoolean(peer[4], "peer.full_duplex"),
-    fullDuplexCapable: optionalBoolean(peer[5], "peer.full_duplex_capable"),
     rttMicros: optionalNumber(peer[6], "peer.rtt_micros"),
-    observeMicros: optionalNumber(peer[7], "peer.observe_micros"),
-    queryHeaderMicros: optionalNumber(peer[8], "peer.query_header_micros"),
-    getBlockMicros: optionalNumber(peer[9], "peer.get_block_micros"),
-    adoptBlockMicros: optionalNumber(peer[10], "peer.adopt_block_micros"),
   };
 }
 
@@ -291,8 +307,4 @@ function boolean(value: unknown, name: string): boolean {
     throw new Error(`Invalid ${name}`);
   }
   return value;
-}
-
-function optionalBoolean(value: unknown, name: string): boolean | null {
-  return value === null || value === undefined ? null : boolean(value, name);
 }

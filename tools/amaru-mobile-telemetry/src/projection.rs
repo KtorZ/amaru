@@ -16,23 +16,23 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    time::Instant,
+    time::{Duration, Instant, SystemTime},
 };
 
 use amaru_observability::{
     RecordFields,
-    amaru::{consensus, ledger, mempool, protocols},
+    amaru::{ledger, mempool, protocols},
 };
 
 use crate::trace::Record;
 
 const PEER_LIMIT: usize = 32;
 const PEER_STATE_LIMIT: usize = 128;
-const PEER_IDLE_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
+const PEER_IDLE_LIMIT: Duration = Duration::from_secs(600);
 const RECENT_ROLLBACK_LIMIT: usize = 100;
+const ROLLBACK_WINDOW: Duration = Duration::from_secs(600);
 const SEEN_SPAN_LIMIT: usize = 4_096;
 const RATE_SMOOTHING: usize = 10;
-const PEER_SMOOTHING: usize = 10;
 
 /// Compact resource values sampled locally from the running Amaru process.
 #[derive(Debug, Clone)]
@@ -92,18 +92,8 @@ pub struct Peer {
     pub connected: bool,
     pub inbound: bool,
     pub outbound: bool,
-    pub full_duplex: Option<bool>,
-    pub full_duplex_capable: Option<bool>,
     pub rtt_micros: Option<u64>,
-    pub observe_micros: Option<u64>,
-    pub query_header_micros: Option<u64>,
-    pub get_block_micros: Option<u64>,
-    pub adopt_block_micros: Option<u64>,
     updated_at: Instant,
-    observe: Mean,
-    query_header: Mean,
-    get_block: Mean,
-    adopt_block: Mean,
 }
 
 impl Peer {
@@ -113,37 +103,9 @@ impl Peer {
             connected: false,
             inbound: false,
             outbound: false,
-            full_duplex: None,
-            full_duplex_capable: None,
             rtt_micros: None,
-            observe_micros: None,
-            query_header_micros: None,
-            get_block_micros: None,
-            adopt_block_micros: None,
             updated_at: Instant::now(),
-            observe: Mean::default(),
-            query_header: Mean::default(),
-            get_block: Mean::default(),
-            adopt_block: Mean::default(),
         }
-    }
-
-    fn update_header_lifecycle(
-        &mut self,
-        observe_micros: Option<u64>,
-        query_header_micros: Option<u64>,
-        get_block_micros: Option<u64>,
-        adopt_block_micros: Option<u64>,
-    ) {
-        self.observe.record(observe_micros);
-        self.query_header.record(query_header_micros);
-        self.get_block.record(get_block_micros);
-        self.adopt_block.record(adopt_block_micros);
-        self.observe_micros = self.observe.value();
-        self.query_header_micros = self.query_header.value();
-        self.get_block_micros = self.get_block.value();
-        self.adopt_block_micros = self.adopt_block.value();
-        self.updated_at = Instant::now();
     }
 }
 
@@ -159,7 +121,7 @@ pub struct Projection {
     chain_quality: ChainQuality,
     mempool: Mempool,
     peers: BTreeMap<String, Peer>,
-    recent_rollbacks: VecDeque<(Instant, usize)>,
+    recent_rollbacks: VecDeque<(SystemTime, usize)>,
     seen_spans: BTreeSet<u64>,
     seen_span_order: VecDeque<u64>,
 }
@@ -234,9 +196,8 @@ impl Projection {
         self.peers.insert(peer.address.clone(), peer);
     }
 
-    /// Applies one JSON trace record. Historical replay restores current state but does not
-    /// inflate the counters shown as work performed since the bridge started.
-    pub fn apply(&mut self, record: Record, historical: bool) {
+    /// Applies one JSON trace record emitted at `at`.
+    pub fn apply(&mut self, record: Record, at: SystemTime) {
         if !self.accept_span(&record) {
             return;
         }
@@ -245,22 +206,10 @@ impl Projection {
         };
 
         if ledger::tip::UPDATE::matches(record.target(), name) {
-            self.tip = tip(&record);
-        } else if ledger::state::ROLL_FORWARD::matches(record.target(), name) {
-            if !historical {
-                self.throughput.blocks.record(1);
-            }
-        } else if ledger::transaction::VALIDATE::matches(record.target(), name) {
-            if !historical
-                && record.has_parent(ledger::state::ROLL_FORWARD::NAME)
-                && record.has_parent(ledger::rules::BLOCK::NAME)
-                && record.has_parent(ledger::rules::PHASE_ONE::NAME)
-            {
-                self.throughput.transactions.record(1);
-            }
+            self.update_tip(&record, at);
         } else if ledger::state::SWITCH_TO_FORK::matches(record.target(), name) {
-            if !historical && let Some(length) = record.usize(ledger::state::SWITCH_TO_FORK::FIELD_ROLLBACK_LENGTH) {
-                self.recent_rollbacks.push_back((Instant::now(), length));
+            if let Some(length) = record.usize(ledger::state::SWITCH_TO_FORK::FIELD_ROLLBACK_LENGTH) {
+                self.recent_rollbacks.push_back((at, length));
                 while self.recent_rollbacks.len() > RECENT_ROLLBACK_LIMIT {
                     self.recent_rollbacks.pop_front();
                 }
@@ -276,9 +225,23 @@ impl Projection {
             self.peer_disconnected(&record);
         } else if protocols::keepalive::peer::ROUND_TRIP::matches(record.target(), name) {
             self.peer_round_trip(&record);
-        } else if consensus::perf::header::LIFECYCLE::matches(record.target(), name) {
-            self.peer_header_lifecycle(&record);
         }
+    }
+
+    fn update_tip(&mut self, record: &Record, at: SystemTime) {
+        let Some(tip) = tip(record) else {
+            return;
+        };
+
+        if let Some(previous) = self.tip.as_ref() {
+            let blocks = tip.block_height.saturating_sub(previous.block_height);
+            if blocks > 0 {
+                self.throughput.blocks.record(blocks, at);
+                self.throughput.transactions.record(tip.tx_count, at);
+            }
+        }
+
+        self.tip = Some(tip);
     }
 
     fn accept_span(&mut self, record: &Record) -> bool {
@@ -308,8 +271,6 @@ impl Projection {
             Some("Outbound") => peer.outbound = true,
             _ => {}
         }
-        peer.full_duplex = record.bool(protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX);
-        peer.full_duplex_capable = record.bool(protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE);
         peer.updated_at = Instant::now();
     }
 
@@ -337,28 +298,6 @@ impl Projection {
         peer.updated_at = Instant::now();
     }
 
-    fn peer_header_lifecycle(&mut self, record: &Record) {
-        if record.str(consensus::perf::header::LIFECYCLE::FIELD_OUTCOME) != Some("valid") {
-            return;
-        }
-        let Some(address) = record.str(consensus::perf::header::LIFECYCLE::FIELD_PEER) else {
-            return;
-        };
-        let query_header = record.u64(consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_WAIT_MICROS);
-        let get_block = record.u64(consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_MICROS);
-        let adopt_block = record
-            .u64(consensus::perf::header::LIFECYCLE::FIELD_FORWARD_MICROS)
-            .zip(query_header)
-            .zip(get_block)
-            .map(|((forward, query), get)| forward.saturating_sub(query.saturating_add(get)));
-        self.peer_mut(address).update_header_lifecycle(
-            record.u64(consensus::perf::header::LIFECYCLE::FIELD_SLOT_START_TO_HEADER_MICROS),
-            query_header,
-            get_block,
-            adopt_block,
-        );
-    }
-
     fn peer_mut(&mut self, address: &str) -> &mut Peer {
         if !self.peers.contains_key(address)
             && self.peers.len() >= PEER_STATE_LIMIT
@@ -377,16 +316,17 @@ impl Projection {
     }
 
     fn refresh_chain_quality(&mut self) {
-        let now = Instant::now();
-        self.recent_rollbacks
-            .retain(|(at, _)| now.saturating_duration_since(*at) <= std::time::Duration::from_secs(600));
+        let now = SystemTime::now();
+        self.recent_rollbacks.retain(|(at, _)| now.duration_since(*at).is_ok_and(|elapsed| elapsed <= ROLLBACK_WINDOW));
         if self.recent_rollbacks.is_empty() {
-            self.chain_quality = ChainQuality::default();
+            self.chain_quality =
+                ChainQuality { average_rollback_length: Some(0.0), rollback_frequency_per_second: Some(0.0) };
             return;
         }
         let total = self.recent_rollbacks.iter().map(|(_, length)| *length as f64).sum::<f64>();
         self.chain_quality.average_rollback_length = Some(total / self.recent_rollbacks.len() as f64);
-        self.chain_quality.rollback_frequency_per_second = Some(self.recent_rollbacks.len() as f64 / 600.0);
+        self.chain_quality.rollback_frequency_per_second =
+            Some(self.recent_rollbacks.len() as f64 / ROLLBACK_WINDOW.as_secs_f64());
     }
 }
 
@@ -427,28 +367,33 @@ impl RateCounters {
 #[derive(Debug, Default)]
 struct Rate {
     total: u64,
-    pending: u64,
-    sampled_at: Option<Instant>,
+    last_recorded_at: Option<SystemTime>,
+    last_sampled_at: Option<Instant>,
     per_second: Mean,
 }
 
 impl Rate {
-    fn record(&mut self, count: u64) {
+    fn record(&mut self, count: u64, at: SystemTime) {
         self.total = self.total.saturating_add(count);
-        self.pending = self.pending.saturating_add(count);
+        let Some(previous) = self.last_recorded_at.replace(at) else {
+            return;
+        };
+        let Ok(elapsed) = at.duration_since(previous) else {
+            return;
+        };
+        if !elapsed.is_zero() {
+            self.per_second.record_value(count as f64 / elapsed.as_secs_f64(), RATE_SMOOTHING);
+        }
     }
 
     fn sample(&mut self) {
         let now = Instant::now();
-        let Some(sampled_at) = self.sampled_at.replace(now) else {
-            self.pending = 0;
+        let Some(sampled_at) = self.last_sampled_at.replace(now) else {
             return;
         };
-        let elapsed = now.saturating_duration_since(sampled_at).as_secs_f64();
-        if elapsed > 0.0 {
-            self.per_second.record_value(self.pending as f64 / elapsed, RATE_SMOOTHING);
+        if now.saturating_duration_since(sampled_at) >= Duration::from_secs(1) {
+            self.per_second.record_value(0.0, RATE_SMOOTHING);
         }
-        self.pending = 0;
     }
 }
 
@@ -458,12 +403,6 @@ struct Mean {
 }
 
 impl Mean {
-    fn record(&mut self, value: Option<u64>) {
-        if let Some(value) = value {
-            self.record_value(value as f64, PEER_SMOOTHING);
-        }
-    }
-
     fn record_value(&mut self, sample: f64, smoothing: usize) {
         let alpha = 2.0 / (smoothing.max(1) as f64 + 1.0);
         self.value = Some(match self.value {
@@ -479,29 +418,82 @@ impl Mean {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
     use amaru_observability::amaru::ledger;
 
     use super::*;
 
-    fn record(fields: &str) -> Record {
-        Record::parse(&format!(
-            r#"{{"target":"{}","fields":{{"message":"{}",{fields}}}}}"#,
+    fn record(target: &str, name: &str, fields: &str) -> Record {
+        Record::parse(&format!(r#"{{"target":"{target}","fields":{{"message":"{name}",{fields}}}}}"#,)).expect("record")
+    }
+
+    fn tip_record(block_height: u64, tx_count: u64) -> Record {
+        record(
             ledger::tip::UPDATE::TARGET,
-            ledger::tip::UPDATE::NAME
-        ))
-        .expect("record")
+            ledger::tip::UPDATE::NAME,
+            &format!(
+                r#""slot":100,"header_hash":"abc-{block_height}","block_height":{block_height},"tx_count":{tx_count},"epoch":1,"slot_in_epoch":10,"density":0.05,"current_kes_period":1,"remaining_kes_periods":2"#,
+            ),
+        )
     }
 
     #[test]
     fn reconstructs_the_tip_from_typed_schema_fields() {
         let mut projection = Projection::new("preview".into(), 1, "amaru 0.0.0".into());
-        projection.apply(
-            record(r#""slot":100,"header_hash":"abc","block_height":4,"tx_count":2,"epoch":1,"slot_in_epoch":10,"density":0.05,"current_kes_period":1,"remaining_kes_periods":2"#),
-            false,
-        );
+        projection.apply(tip_record(4, 2), UNIX_EPOCH);
 
         let tip = projection.tip().expect("tip");
         assert_eq!(tip.slot, 100);
-        assert_eq!(tip.header_hash, "abc");
+        assert_eq!(tip.header_hash, "abc-4");
+    }
+
+    #[test]
+    fn derives_throughput_from_tip_deltas() {
+        let mut projection = Projection::new("preview".into(), 1, "amaru 0.0.0".into());
+        let start = UNIX_EPOCH + Duration::from_secs(100);
+
+        projection.apply(tip_record(4, 2), start);
+        projection.apply(tip_record(6, 5), start + Duration::from_secs(2));
+        projection.apply(tip_record(7, 3), start + Duration::from_secs(3));
+
+        let throughput = projection.throughput();
+        assert_eq!(throughput.blocks, 3);
+        assert_eq!(throughput.transactions, 8);
+        assert_eq!(throughput.blocks_per_second, 1.0);
+        assert_eq!(throughput.transactions_per_second, 3.0);
+    }
+
+    #[test]
+    fn does_not_count_the_rewind_before_a_fork_is_replayed() {
+        let mut projection = Projection::new("preview".into(), 1, "amaru 0.0.0".into());
+        let start = UNIX_EPOCH + Duration::from_secs(100);
+
+        projection.apply(tip_record(10, 3), start);
+        projection.apply(tip_record(11, 4), start + Duration::from_secs(1));
+        projection.apply(tip_record(9, 7), start + Duration::from_secs(2));
+
+        let throughput = projection.throughput();
+        assert_eq!(throughput.blocks, 1);
+        assert_eq!(throughput.transactions, 4);
+    }
+
+    #[test]
+    fn replays_recent_rollbacks() {
+        let mut projection = Projection::new("preview".into(), 1, "amaru 0.0.0".into());
+        let now = SystemTime::now();
+        projection.apply(
+            record(
+                ledger::state::SWITCH_TO_FORK::TARGET,
+                ledger::state::SWITCH_TO_FORK::NAME,
+                r#""fork_point":"origin","fork_length":3,"rollback_length":2"#,
+            ),
+            now,
+        );
+        projection.set_system_sample(None);
+
+        let quality = projection.chain_quality();
+        assert_eq!(quality.average_rollback_length, Some(2.0));
+        assert_eq!(quality.rollback_frequency_per_second, Some(1.0 / ROLLBACK_WINDOW.as_secs_f64()));
     }
 }

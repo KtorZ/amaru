@@ -19,7 +19,6 @@ RestrictSUIDSGID=false
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-RestrictSUIDSGID=true
 LockPersonality=true
 
 [Install]

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use amaru_observability::{
     RecordFields,
-    amaru::{consensus, ledger, mempool, protocols},
+    amaru::{ledger, mempool, protocols},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -30,14 +30,11 @@ use serde_json::Value;
 pub fn is_relevant(line: &str) -> bool {
     [
         ledger::tip::UPDATE::NAME,
-        ledger::state::ROLL_FORWARD::NAME,
         ledger::state::SWITCH_TO_FORK::NAME,
-        ledger::transaction::VALIDATE::NAME,
         mempool::state::UPDATE::NAME,
         protocols::peer_selection::peer::CONNECTED::NAME,
         protocols::peer_selection::peer::DISCONNECTED::NAME,
         protocols::keepalive::peer::ROUND_TRIP::NAME,
-        consensus::perf::header::LIFECYCLE::NAME,
     ]
     .into_iter()
     .any(|name| line.contains(name))
@@ -48,8 +45,6 @@ pub fn is_relevant(line: &str) -> bool {
 pub struct Record {
     target: String,
     fields: BTreeMap<String, Value>,
-    #[serde(default)]
-    parents: Vec<String>,
     #[serde(default)]
     id: Option<u64>,
 }
@@ -68,17 +63,12 @@ impl Record {
         self.str("message")
     }
 
-    /// Returns whether this is the first JSON lifecycle record for a span.
+    /// Returns the identifier carried by a span lifecycle record.
     ///
     /// The JSON formatter emits both `ENTER` and `EXIT` records. They have the same
     /// span id and schema name, so reducers must process only the first one.
     pub fn id(&self) -> Option<u64> {
         self.id
-    }
-
-    /// Returns whether the record was emitted below the named parent span.
-    pub fn has_parent(&self, name: &str) -> bool {
-        self.parents.iter().any(|parent| parent == name)
     }
 }
 

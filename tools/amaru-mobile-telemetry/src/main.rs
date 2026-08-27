@@ -93,7 +93,8 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let publisher = tokio::spawn(publish(projection, trace_rx, snapshot_tx));
+    let power_off_enabled = args.enable_power_off;
+    let publisher = tokio::spawn(publish(projection, trace_rx, snapshot_tx, power_off_enabled));
     let ble = ble::serve(snapshot_rx, args.adapter.as_deref(), &args.bluetooth_name, args.enable_power_off).await;
     publisher.abort();
     ble
@@ -108,6 +109,7 @@ async fn publish(
     projection: Arc<Mutex<Projection>>,
     mut trace_rx: mpsc::Receiver<TraceLine>,
     snapshot_tx: watch::Sender<Vec<Vec<u8>>>,
+    power_off_enabled: bool,
 ) {
     let mut sampler = system::Sampler::new(projection.lock().await.pid());
     let mut sequence = 0_u32;
@@ -118,13 +120,13 @@ async fn publish(
         tokio::select! {
             Some(line) = trace_rx.recv() => {
                 if let Some(record) = Record::parse(&line.text) {
-                    projection.lock().await.apply(record, line.historical);
+                    projection.lock().await.apply(record, line.at);
                 }
             }
             _ = ticker.tick() => {
                 let mut projection = projection.lock().await;
                 projection.set_system_sample(sampler.sample());
-                let bytes = snapshot_bytes(&projection, sequence);
+                let bytes = snapshot_bytes(&projection, sequence, power_off_enabled);
                 let _ = snapshot_tx.send(fragment(sequence, &bytes));
                 sequence = sequence.wrapping_add(1);
             }
