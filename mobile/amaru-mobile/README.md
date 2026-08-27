@@ -31,9 +31,10 @@ The Bluetooth usage descriptions are maintained in
 [`src-tauri/Info.ios.plist`](src-tauri/Info.ios.plist) for iOS. Tauri merges
 them into generated plists, so do not edit files below `src-tauri/gen/`.
 
-Open the generated Xcode project once and add the `CoreBluetooth.framework`
-under **General → Frameworks, Libraries, and Embedded Content**, as required
-by `tauri-plugin-blec`.
+`CoreBluetooth.framework` is declared in
+[`src-tauri/ios-project.yml`](src-tauri/ios-project.yml), the tracked XcodeGen
+template. Regenerate the iOS project with `npm run tauri ios init -- --ci` after
+changing that template.
 
 For a physical device, connect and unlock the iPhone, trust the Mac, enable
 **Developer Mode** in **Settings → Privacy & Security**, then run:

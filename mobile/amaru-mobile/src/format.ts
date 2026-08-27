@@ -31,6 +31,6 @@ export function uptime(seconds: number | null): string {
   return hours === 0 ? `${minutes} min` : `${hours} h ${minutes} min`;
 }
 
-export function percent(value: number, total: number): number | null {
-  return total === 0 ? null : (value / total) * 100;
+export function percent(value: number, total: number): number {
+  return total === 0 ? 0 : (value / total) * 100;
 }

@@ -96,6 +96,10 @@ The bridge runs as `amaru`. Its sudo rule permits exactly
 one-shot unit can only request a system power-off. Neither component grants a
 shell nor a general systemd control capability.
 
+The power-off unit is triggered on demand and must not be enabled. The bridge
+unit intentionally sets `NoNewPrivileges=false` and `RestrictSUIDSGID=false`:
+its restricted sudo handoff needs to execute as root.
+
 
 ### From MacOS
 

@@ -19,13 +19,16 @@ type Bluetooth = typeof import("@mnlphlp/plugin-blec");
 const app = element("#app");
 const amaruLogo = new URL("../../../amaru.svg", import.meta.url).href;
 const hasTauriRuntime = "__TAURI_INTERNALS__" in window;
+const SIGNAL_TIMEOUT_MS = 2_000;
 
 const devices = new Map<string, BleDevice>();
 const stream = new SnapshotStream();
 let bluetooth: Bluetooth | null = null;
 let connection: Connection = "disconnected";
 let snapshot: Snapshot | null = null;
-let lastSnapshotAt: number | null = null;
+let lastPayloadAt: number | null = null;
+let lastTipHash: string | null = null;
+let lastTipUpdateAt: number | null = null;
 let selectedAddress: string | null = null;
 let error: string | null = null;
 let confirmingPowerOff = false;
@@ -71,13 +74,31 @@ async function scan(): Promise<void> {
     devices.clear();
     connection = "scanning";
     render();
+    let foundAmaru = false;
     await ble.startScan((found) => {
-      for (const device of found) {
-        if (isAmaru(device)) devices.set(device.address, device);
-      }
+      if (foundAmaru) return;
+
+      const device = found.find(isAmaru);
+      if (device === undefined) return;
+
+      foundAmaru = true;
+      devices.set(device.address, device);
       render();
+      void stopScanAfterDiscovery(ble);
     }, 10_000);
   } catch (cause) {
+    connection = "disconnected";
+    error = message(cause);
+    render();
+  }
+}
+
+async function stopScanAfterDiscovery(ble: Bluetooth): Promise<void> {
+  try {
+    await ble.stopScan();
+  } catch (cause) {
+    if (connection !== "scanning") return;
+
     connection = "disconnected";
     error = message(cause);
     render();
@@ -106,15 +127,6 @@ async function attach(address: string): Promise<void> {
   render();
 }
 
-async function detach(): Promise<void> {
-  try {
-    await bluetoothApi().disconnect();
-  } catch (cause) {
-    error = message(cause);
-  }
-  onDisconnect();
-}
-
 function beginPowerOff(): void {
   confirmingPowerOff = true;
   render();
@@ -130,7 +142,7 @@ async function powerOff(): Promise<void> {
     poweringOff = true;
     error = null;
     render();
-    await bluetoothApi().send(POWER_OFF_UUID, [...POWER_OFF_COMMAND], "withResponse", SERVICE_UUID);
+    await bluetoothApi().send(POWER_OFF_UUID, [...POWER_OFF_COMMAND], "withoutResponse", SERVICE_UUID);
   } catch (cause) {
     confirmingPowerOff = false;
     error = message(cause);
@@ -143,7 +155,9 @@ async function powerOff(): Promise<void> {
 function onDisconnect(): void {
   connection = "disconnected";
   snapshot = null;
-  lastSnapshotAt = null;
+  lastPayloadAt = null;
+  lastTipHash = null;
+  lastTipUpdateAt = null;
   stream.reset();
   selectedAddress = null;
   confirmingPowerOff = false;
@@ -156,8 +170,13 @@ function receiveNotification(notification: number[]): void {
   try {
     const next = stream.push(notification, (payload) => decodeSnapshot(decode(payload)));
     if (next !== null) {
+      const now = Date.now();
       snapshot = next;
-      lastSnapshotAt = Date.now();
+      lastPayloadAt = now;
+      if (next.tip !== null && next.tip.headerHash !== lastTipHash) {
+        lastTipHash = next.tip.headerHash;
+        lastTipUpdateAt = now;
+      }
       connection = "connected";
       error = null;
       render();
@@ -217,15 +236,15 @@ function dashboardView(current: Snapshot): string {
   const resource = current.resource;
   const peers = current.peers.map(peerRow).join("") || '<tr><td colspan="6" class="muted">No peer telemetry yet.</td></tr>';
   const tip = current.tip;
+  const signalLost = lastPayloadAt === null || Date.now() - lastPayloadAt > SIGNAL_TIMEOUT_MS;
 
   return `
     <section class="shell dashboard">
       <header class="topbar">
         <img class="brand-logo brand-logo--compact" src="${amaruLogo}" alt="" />
-        <div class="node-name"><strong>AMARU</strong><span>${escape(current.node.version)}</span></div>
-        <span class="connection"><i></i>${lastSnapshotAge()}</span>
+        <div class="node-name"><strong>AMARU</strong><span>${escape(current.node.version.replace(/^amaru\s+/i, ""))}</span></div>
+        <span class="connection ${signalLost ? "connection--lost" : ""}"><i></i>${signalLost ? "no signal" : lastTipAge()}</span>
         ${powerOffAvailable ? powerOffControl() : ""}
-        <button class="text-button" data-disconnect>Disconnect</button>
       </header>
 
       ${detailsCard("Node", [
@@ -351,7 +370,6 @@ function peerRow(peer: Snapshot["peers"][number]): string {
 
 function bindActions(): void {
   app.querySelector<HTMLButtonElement>("[data-scan]")?.addEventListener("click", () => void scan());
-  app.querySelector<HTMLButtonElement>("[data-disconnect]")?.addEventListener("click", () => void detach());
   app.querySelector<HTMLButtonElement>("[data-power-off]")?.addEventListener("click", beginPowerOff);
   app.querySelector<HTMLButtonElement>("[data-cancel-power-off]")?.addEventListener("click", cancelPowerOff);
   app.querySelector<HTMLButtonElement>("[data-confirm-power-off]")?.addEventListener("click", () => void powerOff());
@@ -370,9 +388,9 @@ function bluetoothApi(): Bluetooth {
   throw new Error("Bluetooth is available only from the native Amaru Mobile application");
 }
 
-function lastSnapshotAge(): string {
-  if (lastSnapshotAt === null) return "waiting";
-  return `${Math.max(0, Math.floor((Date.now() - lastSnapshotAt) / 1_000))}s ago`;
+function lastTipAge(): string {
+  if (lastTipUpdateAt === null) return "waiting for tip";
+  return `${Math.max(0, Math.floor((Date.now() - lastTipUpdateAt) / 1_000))}s ago`;
 }
 
 function message(cause: unknown): string {

@@ -143,10 +143,14 @@ fn power_off_characteristic(power_off_requested: Arc<AtomicBool>) -> Characteris
         uuid: POWER_OFF_UUID,
         write: Some(CharacteristicWrite {
             write: true,
+            write_without_response: true,
             method: CharacteristicWriteMethod::Fun(Box::new(move |value, request| {
                 let power_off_requested = power_off_requested.clone();
                 Box::pin(async move {
-                    if request.offset != 0 || request.op_type != WriteOp::Request || !power_off::is_command(&value) {
+                    if request.offset != 0
+                        || !matches!(request.op_type, WriteOp::Request | WriteOp::Command)
+                        || !power_off::is_command(&value)
+                    {
                         return Err(ReqError::NotPermitted);
                     }
 
@@ -154,6 +158,7 @@ fn power_off_characteristic(power_off_requested: Arc<AtomicBool>) -> Characteris
                         return Err(ReqError::InProgress);
                     }
 
+                    eprintln!("amaru-mobile-telemetry: power-off requested");
                     if let Err(error) = power_off::schedule().await {
                         power_off_requested.store(false, Ordering::Release);
                         eprintln!("amaru-mobile-telemetry: power-off request failed: {error:#}");
