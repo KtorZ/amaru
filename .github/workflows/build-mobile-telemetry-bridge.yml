@@ -66,7 +66,7 @@ jobs:
           install -D -m 0755 "$binary" "$root/amaru-mobile-telemetry"
           install -D -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-telemetry.service "$root/amaru-mobile-telemetry.service"
           install -D -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-poweroff.service "$root/amaru-mobile-poweroff.service"
-          install -D -m 0440 tools/amaru-mobile-telemetry/sudoers.d/amaru-mobile-poweroff "$root/sudoers.d/amaru-mobile-poweroff"
+          install -D -m 0644 tools/amaru-mobile-telemetry/systemd/amaru-mobile-poweroff.socket "$root/amaru-mobile-poweroff.socket"
           install -D -m 0644 tools/amaru-mobile-telemetry/README.md "$root/README.md"
           sha256sum "$root/amaru-mobile-telemetry" > "$root/SHA256SUMS"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
