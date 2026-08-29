@@ -26,7 +26,8 @@
     "active": true,
     "category": "Utility",
     "iOS": {
-      "developmentTeam": "L8QX522985"
+      "developmentTeam": "L8QX522985",
+      "minimumSystemVersion": "15.0"
     }
   }
 }

@@ -4,4 +4,4 @@ Documentation=https://github.com/pragma-org/amaru
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl --no-block poweroff
+ExecStart=/bin/systemctl --no-block poweroff

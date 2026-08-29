@@ -52,6 +52,12 @@ The bridge's service UUID and stream UUID are defined once in
 [`src/protocol.ts`](src/protocol.ts). The CBOR field order is also defined
 there and must remain compatible with
 [`tools/amaru-mobile-telemetry/src/wire.rs`](../../tools/amaru-mobile-telemetry/src/wire.rs).
+The application and bridge currently support only snapshot version `5`, so
+deploy them together when upgrading either side of the protocol.
+
+`npm test` first asks the Rust bridge test suite to write its CBOR vectors
+under `tools/amaru-mobile-telemetry/target/test-vectors/`, then validates that
+the TypeScript decoder accepts those exact artifacts.
 
 ## Security
 

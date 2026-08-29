@@ -31,6 +31,15 @@ export function uptime(seconds: number | null): string {
   return hours === 0 ? `${minutes} min` : `${hours} h ${minutes} min`;
 }
 
+export function temperature(celsius: number | null): string {
+  return celsius === null ? "-" : `${celsius.toFixed(1)} °C`;
+}
+
+/** Formats the aggregate and hottest component temperatures reported by the bridge. */
+export function temperatures(averageCelsius: number | null, maximumCelsius: number | null): string {
+  return `avg=${temperature(averageCelsius)} max=${temperature(maximumCelsius)}`;
+}
+
 export function percent(value: number, total: number): number {
   return total === 0 ? 0 : (value / total) * 100;
 }

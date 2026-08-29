@@ -4,9 +4,7 @@ export const POWER_OFF_UUID = "8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c713";
 export const POWER_OFF_COMMAND = new TextEncoder().encode("amaru/power-off/v1");
 
 const MAGIC = 0xa7;
-const VERSION = 3;
-const PREVIOUS_VERSION = 2;
-const OLDEST_VERSION = 1;
+const VERSION = 5;
 const HEADER_LENGTH = 8;
 
 export type Resource = {
@@ -20,6 +18,8 @@ export type Resource = {
   processDiskWriteBytes: number;
   hostDiskReadBytes: number;
   hostDiskWriteBytes: number;
+  averageTemperatureCelsius: number | null;
+  maximumTemperatureCelsius: number | null;
 };
 
 export type Peer = {
@@ -116,13 +116,10 @@ export class SnapshotStream {
 
 /** Decodes the versioned CBOR positional schema emitted by amaru-mobile-telemetry. */
 export function decodeSnapshot(value: unknown): Snapshot {
-  const snapshot = array(value, "snapshot", 10, 11);
+  const snapshot = array(value, "snapshot", 11);
   const version = number(snapshot[0], "version");
-  if (version !== VERSION && version !== PREVIOUS_VERSION && version !== OLDEST_VERSION) {
+  if (version !== VERSION) {
     throw new Error("Unsupported telemetry stream version");
-  }
-  if ((version !== OLDEST_VERSION && snapshot.length !== 11) || (version === OLDEST_VERSION && snapshot.length !== 10)) {
-    throw new Error("Invalid snapshot payload");
   }
 
   return {
@@ -134,8 +131,8 @@ export function decodeSnapshot(value: unknown): Snapshot {
     tip: snapshot[6] === null ? null : decodeTip(snapshot[6]),
     chainQuality: decodeChainQuality(snapshot[7]),
     mempool: decodeMempool(snapshot[8]),
-    peers: array(snapshot[9], "peers").map((peer) => decodePeer(peer, version)),
-    powerOffEnabled: version !== OLDEST_VERSION && boolean(snapshot[10], "power_off_enabled"),
+    peers: array(snapshot[9], "peers").map(decodePeer),
+    powerOffEnabled: boolean(snapshot[10], "power_off_enabled"),
   };
 }
 
@@ -144,7 +141,7 @@ function parseFrame(notification: number[]): Frame | null {
   if (
     bytes.length <= HEADER_LENGTH ||
     bytes[0] !== MAGIC ||
-    (bytes[1] !== VERSION && bytes[1] !== PREVIOUS_VERSION && bytes[1] !== OLDEST_VERSION)
+    bytes[1] !== VERSION
   ) {
     return null;
   }
@@ -186,7 +183,7 @@ function decodeNode(value: unknown): Snapshot["node"] {
 }
 
 function decodeResource(value: unknown): Resource {
-  const resource = array(value, "resource", 10);
+  const resource = array(value, "resource", 10, 12);
   return {
     cpuPercent: number(resource[0], "resource.cpu_percent"),
     processMemoryBytes: number(resource[1], "resource.process_memory_bytes"),
@@ -198,6 +195,8 @@ function decodeResource(value: unknown): Resource {
     processDiskWriteBytes: number(resource[7], "resource.process_disk_write_bytes"),
     hostDiskReadBytes: number(resource[8], "resource.host_disk_read_bytes"),
     hostDiskWriteBytes: number(resource[9], "resource.host_disk_write_bytes"),
+    averageTemperatureCelsius: optionalNumber(resource[10], "resource.average_temperature_celsius"),
+    maximumTemperatureCelsius: optionalNumber(resource[11], "resource.maximum_temperature_celsius"),
   };
 }
 
@@ -240,30 +239,19 @@ function decodeMempool(value: unknown): Snapshot["mempool"] {
   };
 }
 
-function decodePeer(value: unknown, version: number): Peer {
-  if (version === VERSION) {
-    const peer = array(value, "peer", 4);
-    const direction = number(peer[3], "peer.direction");
-    if (!Number.isInteger(direction) || direction < 0 || direction > 3) {
-      throw new Error("Invalid peer.direction");
-    }
-
-    return {
-      address: string(peer[0], "peer.address"),
-      connected: boolean(peer[1], "peer.connected"),
-      rttMicros: optionalNumber(peer[2], "peer.rtt_micros"),
-      outbound: (direction & 1) !== 0,
-      inbound: (direction & 2) !== 0,
-    };
+function decodePeer(value: unknown): Peer {
+  const peer = array(value, "peer", 4);
+  const direction = number(peer[3], "peer.direction");
+  if (!Number.isInteger(direction) || direction < 0 || direction > 3) {
+    throw new Error("Invalid peer.direction");
   }
 
-  const peer = array(value, "peer", 4, 11);
   return {
     address: string(peer[0], "peer.address"),
     connected: boolean(peer[1], "peer.connected"),
-    inbound: boolean(peer[2], "peer.inbound"),
-    outbound: boolean(peer[3], "peer.outbound"),
-    rttMicros: optionalNumber(peer[6], "peer.rtt_micros"),
+    rttMicros: optionalNumber(peer[2], "peer.rtt_micros"),
+    outbound: (direction & 1) !== 0,
+    inbound: (direction & 2) !== 0,
   };
 }
 

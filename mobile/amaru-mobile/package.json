@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test": "cargo test --manifest-path ../../tools/amaru-mobile-telemetry/Cargo.toml golden_snapshots && tsc --project tsconfig.golden.json && node --test test/protocol.golden.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

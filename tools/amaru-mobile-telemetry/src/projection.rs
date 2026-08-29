@@ -48,6 +48,10 @@ pub struct ResourceSample {
     pub process_disk_write_bytes: u64,
     pub host_disk_read_bytes: u64,
     pub host_disk_write_bytes: u64,
+    /// Mean of the finite component temperatures exposed by the host, in Celsius.
+    pub average_temperature_celsius: Option<f32>,
+    /// Highest finite component temperature exposed by the host, in Celsius.
+    pub maximum_temperature_celsius: Option<f32>,
 }
 
 /// Values shown by the throughput card.

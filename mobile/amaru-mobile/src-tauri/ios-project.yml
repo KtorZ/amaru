@@ -33,7 +33,8 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
-      - path: Externals
+      # The Rust static library is linked through `dependencies` below. Adding
+      # `Externals` here would copy libapp.a into the app bundle.
       - path: {{app.name}}_iOS
       - path: {{app.asset-dir}}
         buildPhase: resources

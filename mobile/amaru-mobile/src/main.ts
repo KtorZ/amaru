@@ -1,7 +1,8 @@
 import type { BleDevice } from "@mnlphlp/plugin-blec";
+import { invoke } from "@tauri-apps/api/core";
 import { decode } from "cbor-x";
 
-import { bytes, count, dataRate, duration, percent, rate, uptime } from "./format";
+import { bytes, count, dataRate, duration, percent, rate, temperatures, uptime } from "./format";
 import {
   POWER_OFF_COMMAND,
   POWER_OFF_UUID,
@@ -19,7 +20,12 @@ type Bluetooth = typeof import("@mnlphlp/plugin-blec");
 const app = element("#app");
 const amaruLogo = new URL("../../../amaru.svg", import.meta.url).href;
 const hasTauriRuntime = "__TAURI_INTERNALS__" in window;
+const RESET_TIMEOUT_MS = 1_000;
+const SCAN_TIMEOUT_MS = 10_000;
 const SIGNAL_TIMEOUT_MS = 2_000;
+const POWER_OFF_SLIDE_DISTANCE_PX = 32;
+const POWER_OFF_HANDLE_START = [48, 228, 161];
+const POWER_OFF_HANDLE_END = [49, 130, 243];
 
 const devices = new Map<string, BleDevice>();
 const stream = new SnapshotStream();
@@ -32,9 +38,17 @@ let lastTipUpdateAt: number | null = null;
 let selectedAddress: string | null = null;
 let error: string | null = null;
 let confirmingPowerOff = false;
+let powerOffSlideStartX: number | null = null;
+let powerOffSlideMoved = false;
+let initialDiscoveryPending = hasTauriRuntime;
+let resuming = false;
+let connectionAttempt = 0;
 
 void initialise();
 render();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void resume();
+});
 window.setInterval(() => {
   if (snapshot !== null) render();
 }, 1_000);
@@ -47,22 +61,25 @@ async function initialise(): Promise<void> {
 
   try {
     bluetooth = await import("@mnlphlp/plugin-blec");
-    await bluetooth.getConnectionUpdates((connected) => {
-      if (!connected) onDisconnect();
-    });
     await bluetooth.getScanningUpdates((scanning) => {
       if (connection === "disconnected" || connection === "scanning") {
         connection = scanning ? "scanning" : "disconnected";
         render();
       }
     });
+    void discover(true);
   } catch (cause) {
+    initialDiscoveryPending = false;
     error = message(cause);
     render();
   }
 }
 
-async function scan(): Promise<void> {
+async function discover(connectFirst: boolean): Promise<void> {
+  if (connection === "scanning" || connection === "connecting" || connection === "awaiting" || connection === "connected") {
+    return;
+  }
+
   try {
     const ble = bluetoothApi();
     error = null;
@@ -73,6 +90,10 @@ async function scan(): Promise<void> {
     connection = "scanning";
     render();
     let foundAmaru = false;
+    let resolveDiscovery = () => {};
+    const discovery = new Promise<void>((resolve) => {
+      resolveDiscovery = resolve;
+    });
     await ble.startScan((found) => {
       if (foundAmaru) return;
 
@@ -81,10 +102,25 @@ async function scan(): Promise<void> {
 
       foundAmaru = true;
       devices.set(device.address, device);
+      initialDiscoveryPending = false;
+      resolveDiscovery();
+      if (connectFirst) {
+        void attach(device.address);
+      } else {
+        render();
+        void stopScanAfterDiscovery(ble);
+      }
+    }, SCAN_TIMEOUT_MS);
+
+    await Promise.race([discovery, delay(SCAN_TIMEOUT_MS)]);
+
+    if (!foundAmaru) {
+      initialDiscoveryPending = false;
+      connection = "disconnected";
       render();
-      void stopScanAfterDiscovery(ble);
-    }, 10_000);
+    }
   } catch (cause) {
+    initialDiscoveryPending = false;
     connection = "disconnected";
     error = message(cause);
     render();
@@ -106,32 +142,116 @@ async function stopScanAfterDiscovery(ble: Bluetooth): Promise<void> {
 async function attach(address: string): Promise<void> {
   if (connection === "connecting" || connection === "awaiting" || connection === "connected") return;
 
+  let ble: Bluetooth | null = null;
+  const attempt = ++connectionAttempt;
+
   try {
-    const ble = bluetoothApi();
+    ble = bluetoothApi();
     connection = "connecting";
     selectedAddress = address;
     stream.reset();
     error = null;
     render();
+
     await ble.stopScan();
-    await ble.connect(address, onDisconnect);
+    if (attempt !== connectionAttempt) return;
+    await ble.connect(address, () => onDisconnect(attempt));
+    if (attempt !== connectionAttempt) return;
     await ble.subscribe(STREAM_UUID, SERVICE_UUID, receiveNotification);
+    if (attempt !== connectionAttempt) return;
     connection = "awaiting";
   } catch (cause) {
+    if (attempt !== connectionAttempt) return;
+    if (ble !== null) await resetQuietly();
     connection = "disconnected";
     error = message(cause);
   }
+  if (attempt !== connectionAttempt) return;
   render();
+}
+
+async function resetQuietly(): Promise<void> {
+  try {
+    await Promise.race([
+      invoke("plugin:blec|reset_connection"),
+      new Promise<void>((resolve) => window.setTimeout(resolve, RESET_TIMEOUT_MS)),
+    ]);
+  } catch {
+    // A best-effort cleanup must never prevent a retry.
+  }
+}
+
+async function resume(): Promise<void> {
+  if (resuming || connection === "shutting_down" || bluetooth === null) return;
+
+  resuming = true;
+  initialDiscoveryPending = true;
+  try {
+    connectionAttempt += 1;
+    await resetQuietly();
+    onDisconnect();
+    await discover(true);
+  } finally {
+    resuming = false;
+  }
 }
 
 function beginPowerOff(): void {
   confirmingPowerOff = true;
+  resetPowerOffSlide();
   render();
 }
 
 function cancelPowerOff(): void {
   confirmingPowerOff = false;
+  resetPowerOffSlide();
   render();
+}
+
+function beginPowerOffSlide(event: PointerEvent): void {
+  const slider = event.currentTarget as HTMLInputElement;
+  if (slider.valueAsNumber > 0) {
+    slider.value = "0";
+    updatePowerOffHandleColor(slider);
+    return;
+  }
+
+  powerOffSlideStartX = event.clientX;
+  powerOffSlideMoved = false;
+}
+
+function movePowerOffSlide(event: PointerEvent): void {
+  if (powerOffSlideStartX !== null && event.clientX - powerOffSlideStartX >= POWER_OFF_SLIDE_DISTANCE_PX) {
+    powerOffSlideMoved = true;
+  }
+}
+
+function updatePowerOffSlide(slider: HTMLInputElement): void {
+  updatePowerOffHandleColor(slider);
+  if (powerOffSlideMoved && slider.valueAsNumber >= 100) {
+    void powerOff();
+  }
+}
+
+function finishPowerOffSlide(slider: HTMLInputElement): void {
+  if (!powerOffSlideMoved || slider.valueAsNumber < 100) {
+    slider.value = "0";
+    updatePowerOffHandleColor(slider);
+  }
+  resetPowerOffSlide();
+}
+
+function updatePowerOffHandleColor(slider: HTMLInputElement): void {
+  const progress = Math.min(1, Math.max(0, slider.valueAsNumber / 100));
+  const color = POWER_OFF_HANDLE_START.map((start, index) =>
+    Math.round(start + (POWER_OFF_HANDLE_END[index]! - start) * progress),
+  );
+  slider.style.setProperty("--power-off-handle-color", `rgb(${color.join(" ")})`);
+}
+
+function resetPowerOffSlide(): void {
+  powerOffSlideStartX = null;
+  powerOffSlideMoved = false;
 }
 
 async function powerOff(): Promise<void> {
@@ -140,6 +260,7 @@ async function powerOff(): Promise<void> {
   try {
     connection = "shutting_down";
     confirmingPowerOff = false;
+    resetPowerOffSlide();
     error = null;
     render();
     await bluetoothApi().send(POWER_OFF_UUID, [...POWER_OFF_COMMAND], "withResponse", SERVICE_UUID);
@@ -150,7 +271,9 @@ async function powerOff(): Promise<void> {
   }
 }
 
-function onDisconnect(): void {
+function onDisconnect(attempt?: number): void {
+  if (attempt !== undefined && attempt !== connectionAttempt) return;
+
   connection = "disconnected";
   snapshot = null;
   lastPayloadAt = null;
@@ -159,6 +282,7 @@ function onDisconnect(): void {
   stream.reset();
   selectedAddress = null;
   confirmingPowerOff = false;
+  resetPowerOffSlide();
   render();
 }
 
@@ -201,6 +325,7 @@ function shutdownView(): string {
 
 function setupView(): string {
   const waitingForTelemetry = connection === "connecting" || connection === "awaiting";
+  const discoveringInitialNode = initialDiscoveryPending && (bluetooth === null || connection === "scanning");
   const nodes = [...devices.values()]
     .sort((left, right) => right.rssi - left.rssi)
     .map(
@@ -227,7 +352,7 @@ function setupView(): string {
       <div class="setup-copy">
         <p>Connect to a nearby Amaru node over <i class="accent-cyan">Bluetooth</i>.</p>
       </div>
-      ${waitingForTelemetry ? `<p class="loading"><i></i>${connection === "connecting" ? "Connecting to Amaru..." : "Waiting for telemetry..."}</p>` : `
+      ${waitingForTelemetry ? `<p class="loading"><i></i>${connection === "connecting" ? "Connecting to Amaru..." : "Waiting for telemetry..."}</p>` : discoveringInitialNode ? `<p class="loading"><i></i>Searching nearby Amaru nodes...</p>` : `
         <button class="primary${connection === "scanning" ? " primary--scanning" : ""}" data-scan ${busy || unavailable ? "disabled" : ""}>
           ${unavailable ? "Open in Amaru Mobile" : connection === "scanning" ? "Scanning nearby nodes..." : "Find Amaru node"}
         </button>`}
@@ -246,7 +371,7 @@ function dashboardView(current: Snapshot): string {
   const signalLost = lastPayloadAt === null || Date.now() - lastPayloadAt > SIGNAL_TIMEOUT_MS;
 
   return `
-    <section class="shell dashboard">
+    <section class="shell dashboard${confirmingPowerOff ? " dashboard--confirming-power-off" : ""}">
       <header class="topbar">
         <img class="brand-logo brand-logo--compact" src="${amaruLogo}" alt="" />
         <div class="node-name"><strong>AMARU</strong><span>${escape(current.node.version.replace(/^amaru\s+/i, ""))}</span></div>
@@ -258,6 +383,12 @@ function dashboardView(current: Snapshot): string {
         ["PID", String(current.node.pid)],
         ["Uptime", uptime(current.node.uptimeSeconds)],
         ["Network", current.node.network],
+        [
+          "Temperature",
+          resource === null
+            ? "-"
+            : temperatures(resource.averageTemperatureCelsius, resource.maximumTemperatureCelsius),
+        ],
       ])}
 
       <section class="resource-grid">
@@ -306,20 +437,28 @@ function dashboardView(current: Snapshot): string {
           </table>
         </div>
       </section>
+      ${confirmingPowerOff ? powerOffSlider() : ""}
       ${error === null ? "" : `<p class="error">${escape(error)}</p>`}
     </section>`;
 }
 
 function powerOffControl(): string {
-  if (!confirmingPowerOff) {
-    return '<button class="power-button" data-power-off>Power off</button>';
-  }
+  return `<button class="power-button" data-power-off type="button" aria-label="Power off node" title="Power off node">
+    <svg class="power-button__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10M6.34 5.34a8 8 0 1 0 11.32 0" /></svg>
+  </button>`;
+}
 
-  return `<span class="power-confirmation">
-    <span class="power-confirmation__prompt">Power off this node?</span>
-    <button class="text-button" data-cancel-power-off>Cancel</button>
-    <button class="power-button" data-confirm-power-off>Confirm</button>
-  </span>`;
+function powerOffSlider(): string {
+  return `<section class="power-off-slider" aria-label="Confirm node power off">
+    <div class="power-off-slider__heading">
+      <strong>Power off node</strong>
+      <button class="text-button" data-cancel-power-off type="button">Cancel</button>
+    </div>
+    <div class="power-off-slider__rail">
+      <span>Slide to power off</span>
+      <input class="power-off-slider__input" data-power-slider type="range" min="0" max="100" value="0" aria-label="Slide to power off node" />
+    </div>
+  </section>`;
 }
 
 function metric(label: string, value: string, valueAsPercent: number | null, showPercent = true): string {
@@ -353,16 +492,29 @@ function peerRow(peer: Snapshot["peers"][number]): string {
   const direction = `${peer.outbound ? "↓" : ""}${peer.inbound ? "↑" : ""}` || "-";
   return `<tr>
     <td><i class="peer-state ${peer.connected ? "online" : "offline"}"></i> ${direction}</td>
-    <td>${escape(peer.address)}</td>
+    <td title="${escape(peer.address)}">${escape(truncate(peer.address, 24))}</td>
     <td>${duration(peer.rttMicros)}</td>
   </tr>`;
 }
 
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
 function bindActions(): void {
-  app.querySelector<HTMLButtonElement>("[data-scan]")?.addEventListener("click", () => void scan());
+  app.querySelector<HTMLButtonElement>("[data-scan]")?.addEventListener("click", () => void discover(false));
   app.querySelector<HTMLButtonElement>("[data-power-off]")?.addEventListener("click", beginPowerOff);
   app.querySelector<HTMLButtonElement>("[data-cancel-power-off]")?.addEventListener("click", cancelPowerOff);
-  app.querySelector<HTMLButtonElement>("[data-confirm-power-off]")?.addEventListener("click", () => void powerOff());
+  const powerOffSlider = app.querySelector<HTMLInputElement>("[data-power-slider]");
+  powerOffSlider?.addEventListener("pointerdown", beginPowerOffSlide);
+  powerOffSlider?.addEventListener("pointermove", movePowerOffSlide);
+  powerOffSlider?.addEventListener("pointerup", () => finishPowerOffSlide(powerOffSlider));
+  powerOffSlider?.addEventListener("pointercancel", () => finishPowerOffSlide(powerOffSlider));
+  powerOffSlider?.addEventListener("input", () => updatePowerOffSlide(powerOffSlider));
   for (const element of app.querySelectorAll<HTMLButtonElement>("[data-connect]")) {
     element.addEventListener("click", () => void attach(element.dataset.connect ?? ""));
   }

@@ -125,8 +125,15 @@ docker run --rm \
 | Power-off UUID | `8b4cb36a-7a5d-4f9f-8f31-6a5f4fc8c713` when `AMARU_MOBILE_ENABLE_POWER_OFF=true` |
 | Stream characteristic | Notify |
 | Power-off characteristic | Write, exact UTF-8 `amaru/power-off/v1` |
-| Snapshot | CBOR array, version `3` |
+| Snapshot | CBOR array, version `5` |
 | Fragment | `0xa7`, version, big-endian sequence, index, count, payload |
+
+The application and bridge currently support only snapshot version `5`; deploy them together when
+upgrading either side of the protocol.
+
+The Rust golden test writes raw CBOR snapshots to `target/test-vectors/`. The
+mobile application's `npm test` runs that producer before decoding the same
+artifacts in TypeScript.
 
 BlueZ's local GATT notification API does not expose an encryption requirement
 for notification characteristics, so the telemetry stream must be treated as

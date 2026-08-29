@@ -16,8 +16,8 @@
 
 use anyhow::{Context, anyhow};
 use sysinfo::{
-    CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
-    System,
+    Components, CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate,
+    RefreshKind, System,
 };
 
 use crate::projection::ResourceSample;
@@ -54,6 +54,7 @@ pub struct Sampler {
     pid: Pid,
     system: System,
     disks: Disks,
+    components: Components,
     cpu_count: f64,
 }
 
@@ -69,6 +70,7 @@ impl Sampler {
             pid: Pid::from_u32(pid),
             system,
             disks: Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_io_usage()),
+            components: Components::new_with_refreshed_list(),
             cpu_count,
         }
     }
@@ -81,8 +83,10 @@ impl Sampler {
         );
         self.system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
         self.disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
+        self.components.refresh(false);
 
         let process = self.system.process(self.pid)?;
+        let (average_temperature_celsius, maximum_temperature_celsius) = temperature_range(&self.components);
         let disk = process.disk_usage();
         let (host_disk_read_bytes, host_disk_write_bytes) = self.disks.iter().fold((0_u64, 0_u64), |totals, disk| {
             let usage = disk.usage();
@@ -102,6 +106,24 @@ impl Sampler {
             process_disk_write_bytes: disk.written_bytes,
             host_disk_read_bytes,
             host_disk_write_bytes,
+            average_temperature_celsius,
+            maximum_temperature_celsius,
         })
     }
+}
+
+fn temperature_range(components: &Components) -> (Option<f32>, Option<f32>) {
+    let mut temperatures = components
+        .iter()
+        .filter_map(|component| component.temperature())
+        .filter(|temperature| temperature.is_finite() && *temperature > 0.0);
+    let Some(first) = temperatures.next() else {
+        return (None, None);
+    };
+
+    let (total, count, maximum) = temperatures.fold((first, 1_u32, first), |(total, count, maximum), temperature| {
+        (total + temperature, count + 1, maximum.max(temperature))
+    });
+
+    (Some(total / count as f32), Some(maximum))
 }
